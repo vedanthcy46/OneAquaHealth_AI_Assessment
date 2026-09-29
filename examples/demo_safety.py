@@ -7,14 +7,27 @@ Shows:
   3. Unsafe AI output (pollution diagnosis) being sanitised + flagged.
   4. PII never reaching the provider.
 
-Run: python -m ai.safety.demo_safety
+Run from the repository root: python examples/demo_safety.py
 """
 
 from __future__ import annotations
 
 import json
+import sys
+from pathlib import Path
 
 import numpy as np
+
+# Ensure box-drawing characters print on Windows consoles (cp1252 default).
+try:
+    sys.stdout.reconfigure(encoding="utf-8")
+except (AttributeError, ValueError):
+    pass
+
+# Allow running as a plain script from the repo root.
+_ROOT = Path(__file__).resolve().parents[1]
+if str(_ROOT) not in sys.path:
+    sys.path.insert(0, str(_ROOT))
 
 from ai.pipeline.orchestrator import AIPipelineOrchestrator
 from ai.layer_c.adaptive_questions import AdaptiveQuestionGenerator

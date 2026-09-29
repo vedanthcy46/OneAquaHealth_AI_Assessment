@@ -1,8 +1,8 @@
 """
 Layer B demonstration script (offline, no real API calls).
 
-Run from the workspace root:
-    python -m ai.layer_b.demo_layer_b
+Run from the repository root:
+    python examples/demo_layer_b.py
 
 It demonstrates, using fake providers that mimic OpenAI/Gemini:
   1. An example structured LayerBResult (+ AIEvidence rows).
@@ -13,6 +13,19 @@ It demonstrates, using fake providers that mimic OpenAI/Gemini:
 from __future__ import annotations
 
 import json
+import sys
+from pathlib import Path
+
+# Ensure box-drawing characters print on Windows consoles (cp1252 default).
+try:
+    sys.stdout.reconfigure(encoding="utf-8")
+except (AttributeError, ValueError):
+    pass
+
+# Allow running as a plain script from the repo root.
+_ROOT = Path(__file__).resolve().parents[1]
+if str(_ROOT) not in sys.path:
+    sys.path.insert(0, str(_ROOT))
 
 from ai.layer_b.evidence_detector import EcologicalEvidenceDetector
 from ai.prompts.versions import LAYER_B_PROMPT_VERSION, get_layer_b_prompt
