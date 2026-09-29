@@ -6,3 +6,7 @@
 /.vscode
 /input/pagecontent/puml-extract.yaml
 /temp_content.py
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
