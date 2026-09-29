@@ -1,21 +1,26 @@
 """
 Pydantic schemas for Layer E — AquaGuard Confidence Scoring.
 
-Formula (from AquaGuard Build Plan, Phase 5):
+Aligned to AQUAGUARD_BUILD_PLAN.md Step 34 (Confidence Algorithm) and
+Step 37 (Confidence-Based Routing).
+
+Formula (Step 34):
   Confidence =
-    (ImageQuality             × 0.25)
-  + (EvidenceRichness         × 0.30)
-  + (QuestionCompleteness     × 0.15)
-  + (AnswerImageConsistency   × 0.20)
-  + (HistoricalSiteConsistency× 0.10)
+    (imageQuality           × 0.25)
+  + (aiEvidenceAgreement    × 0.30)
+  + (citizenConsistency     × 0.25)
+  + (gpsValidity            × 0.10)
+  + (historicalConsistency  × 0.10)
 
-All components are normalised to 0–100.
-Weights sum to exactly 1.00.
+All components are normalised to 0–100. Weights sum to exactly 1.00.
 
-Routing:
-   0–49  → REVIEW_REQUIRED
-  50–74  → VALID_MODERATE
-  75–100 → VALID_HIGH
+Routing (Step 37):
+   ≥ 80  → VALID           (auto-accepted, no reviewer needed)
+  60–79  → REVIEW_REQUIRED (enters review queue)
+   < 60  → HUMAN_REVIEW    (mandatory expert review)
+
+Factor names mirror the shared `AIResult.confidenceFactors` contract in
+TEAM_TASK_SPLIT.md Section 4 so the frontend can bind directly.
 """
 
 from __future__ import annotations
@@ -27,13 +32,13 @@ from pydantic import BaseModel, Field, model_validator
 
 
 # ─────────────────────────────────────────────
-# Routing decision vocabulary
+# Routing decision vocabulary (Step 37)
 # ─────────────────────────────────────────────
 
 class ConfidenceRouting(str, Enum):
-    REVIEW_REQUIRED = "REVIEW_REQUIRED"   #  0–49
-    VALID_MODERATE  = "VALID_MODERATE"    # 50–74
-    VALID_HIGH      = "VALID_HIGH"        # 75–100
+    VALID = "VALID"                     # ≥ 80
+    REVIEW_REQUIRED = "REVIEW_REQUIRED" # 60–79
+    HUMAN_REVIEW = "HUMAN_REVIEW"       # < 60
 
 
 # ─────────────────────────────────────────────
@@ -43,83 +48,72 @@ class ConfidenceRouting(str, Enum):
 class ConfidenceComponents(BaseModel):
     """
     The five scored components that feed the confidence formula.
-
-    Each value is on 0–100 scale.
-
-    Missing-value policy
-    ────────────────────
-    historical_site_consistency may be None when no baseline data exists.
-    The calculator must NOT substitute a high score; it uses the
-    documented fallback value (DEFAULT_HISTORICAL_FALLBACK = 50).
+    Field names match the shared AIResult.confidenceFactors contract.
+    Each value is on a 0–100 scale.
     """
 
-    image_quality: float = Field(
+    imageQuality: float = Field(
         ..., ge=0.0, le=100.0,
         description="Layer A composite quality score, 0–100."
     )
-    evidence_richness: float = Field(
+    aiEvidenceAgreement: float = Field(
         ..., ge=0.0, le=100.0,
-        description=(
-            "How information-rich the AI evidence is: proportion of "
-            "high-confidence indicators × mean confidence, 0–100."
-        )
+        description="How information-rich and self-consistent the AI evidence is, 0–100."
     )
-    question_completeness: float = Field(
+    citizenConsistency: float = Field(
         ..., ge=0.0, le=100.0,
-        description=(
-            "Proportion of required questions answered by the citizen, 0–100. "
-            "If no questions were generated, defaults to 100 (nothing to answer)."
-        )
+        description="100 minus 15 per unresolved citizen/AI conflict (spec Step 34)."
     )
-    answer_image_consistency: float = Field(
+    gpsValidity: float = Field(
         ..., ge=0.0, le=100.0,
-        description=(
-            "Layer D cross-validation consistency score, 0–100. "
-            "Directly sourced from ConsistencyResult.score."
-        )
+        description="GPS accuracy score: <20m→100, <50m→70, else 30 (spec Step 34)."
     )
-    historical_site_consistency: float = Field(
+    historicalConsistency: float = Field(
         ..., ge=0.0, le=100.0,
-        description=(
-            "How well current observation matches historical baseline, 0–100. "
-            "Falls back to 50 (neutral) when no baseline is available."
-        )
+        description="Z-score vs site baseline: <2→100, <3→60, else 20; 50 neutral when absent."
     )
 
 
 # ─────────────────────────────────────────────
-# Weight constants (DO NOT change without spec update)
+# Weight constants (spec Step 34 — DO NOT change without spec update)
 # ─────────────────────────────────────────────
 
-WEIGHT_IMAGE_QUALITY              = 0.25
-WEIGHT_EVIDENCE_RICHNESS          = 0.30
-WEIGHT_QUESTION_COMPLETENESS      = 0.15
-WEIGHT_ANSWER_IMAGE_CONSISTENCY   = 0.20
-WEIGHT_HISTORICAL_SITE_CONSISTENCY = 0.10
+WEIGHT_IMAGE_QUALITY            = 0.25
+WEIGHT_AI_EVIDENCE_AGREEMENT    = 0.30
+WEIGHT_CITIZEN_CONSISTENCY      = 0.25
+WEIGHT_GPS_VALIDITY             = 0.10
+WEIGHT_HISTORICAL_CONSISTENCY   = 0.10
 
-# Sum must equal 1.00 — validated at import time.
 _WEIGHTS_SUM = (
     WEIGHT_IMAGE_QUALITY
-    + WEIGHT_EVIDENCE_RICHNESS
-    + WEIGHT_QUESTION_COMPLETENESS
-    + WEIGHT_ANSWER_IMAGE_CONSISTENCY
-    + WEIGHT_HISTORICAL_SITE_CONSISTENCY
+    + WEIGHT_AI_EVIDENCE_AGREEMENT
+    + WEIGHT_CITIZEN_CONSISTENCY
+    + WEIGHT_GPS_VALIDITY
+    + WEIGHT_HISTORICAL_CONSISTENCY
 )
 assert abs(_WEIGHTS_SUM - 1.00) < 1e-9, (
     f"Confidence weights must sum to 1.00, got {_WEIGHTS_SUM}"
 )
 
 CONFIDENCE_WEIGHTS: Dict[str, float] = {
-    "image_quality":               WEIGHT_IMAGE_QUALITY,
-    "evidence_richness":           WEIGHT_EVIDENCE_RICHNESS,
-    "question_completeness":       WEIGHT_QUESTION_COMPLETENESS,
-    "answer_image_consistency":    WEIGHT_ANSWER_IMAGE_CONSISTENCY,
-    "historical_site_consistency": WEIGHT_HISTORICAL_SITE_CONSISTENCY,
+    "imageQuality":          WEIGHT_IMAGE_QUALITY,
+    "aiEvidenceAgreement":   WEIGHT_AI_EVIDENCE_AGREEMENT,
+    "citizenConsistency":    WEIGHT_CITIZEN_CONSISTENCY,
+    "gpsValidity":           WEIGHT_GPS_VALIDITY,
+    "historicalConsistency": WEIGHT_HISTORICAL_CONSISTENCY,
 }
 
 # Fallback used when historical baseline is unavailable.
 # 50 = neutral, avoiding both false-high and false-low inflation.
 DEFAULT_HISTORICAL_FALLBACK: float = 50.0
+# Points deducted per unresolved citizen/AI conflict (spec Step 34).
+CITIZEN_CONFLICT_PENALTY: float = 15.0
+# GPS accuracy thresholds (metres) and scores (spec Step 34).
+GPS_GOOD_M, GPS_GOOD_SCORE = 20.0, 100.0
+GPS_FAIR_M, GPS_FAIR_SCORE = 50.0, 70.0
+GPS_POOR_SCORE = 30.0
+# When GPS accuracy is unknown, use a neutral score (documented, not inflated).
+GPS_UNKNOWN_SCORE: float = 70.0
 
 
 # ─────────────────────────────────────────────
@@ -128,16 +122,7 @@ DEFAULT_HISTORICAL_FALLBACK: float = 50.0
 
 class LayerEResult(BaseModel):
     """
-    Final output of Phase 5 — AquaGuard Confidence Scoring.
-
-    Fields
-    ──────
-    confidence_score        : Weighted composite, rounded to 2 dp.
-    routing                 : One of REVIEW_REQUIRED | VALID_MODERATE | VALID_HIGH.
-    components              : The five normalised sub-scores (0–100 each).
-    weights                 : The locked weighting constants.
-    historical_baseline_used: True if real baseline data was available.
-    missing_data_notes      : Human-readable notes on any substituted/defaulted values.
+    Final output of the AquaGuard Confidence Scoring layer.
     """
 
     confidence_score: float = Field(
@@ -145,8 +130,7 @@ class LayerEResult(BaseModel):
         description="Weighted composite confidence score, 0–100 (rounded to 2 dp)."
     )
     routing: ConfidenceRouting = Field(
-        ...,
-        description="Routing decision derived from confidence_score."
+        ..., description="Routing decision derived from confidence_score (Step 37)."
     )
     components: ConfidenceComponents
     weights: Dict[str, float] = Field(
@@ -155,17 +139,11 @@ class LayerEResult(BaseModel):
     )
     historical_baseline_used: bool = Field(
         ...,
-        description=(
-            "True when real historical baseline data was available. "
-            "False when the fallback value was substituted."
-        )
+        description="True when real historical baseline data was available."
     )
     missing_data_notes: List[str] = Field(
         default_factory=list,
-        description=(
-            "Ordered list of notes describing any missing data and "
-            "the substitution strategy applied."
-        )
+        description="Notes describing any missing data and the substitution strategy."
     )
 
     @model_validator(mode="after")
@@ -185,13 +163,13 @@ class LayerEResult(BaseModel):
 
 def _routing_from_score(score: float) -> ConfidenceRouting:
     """
-    Deterministic routing table (exclusive upper bounds):
-      [0, 50)   → REVIEW_REQUIRED
-      [50, 75)  → VALID_MODERATE
-      [75, 100] → VALID_HIGH
+    Deterministic routing table (spec Step 37):
+      [80, 100] → VALID
+      [60, 80)  → REVIEW_REQUIRED
+      [0, 60)   → HUMAN_REVIEW
     """
-    if score < 50.0:
+    if score >= 80.0:
+        return ConfidenceRouting.VALID
+    if score >= 60.0:
         return ConfidenceRouting.REVIEW_REQUIRED
-    if score < 75.0:
-        return ConfidenceRouting.VALID_MODERATE
-    return ConfidenceRouting.VALID_HIGH
+    return ConfidenceRouting.HUMAN_REVIEW
