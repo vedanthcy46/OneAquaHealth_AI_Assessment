@@ -429,32 +429,33 @@ class TestLayerD_CrossValidation:
 
 class TestConfidence_Formula:
     def test_exact_formula(self):
-        """iq=95 er=95 qc=100 aic=100 hsc=100 → 97.25 (VALID_HIGH)."""
+        """iq=95 aea=95 cc=100 gps=100 hist=100 → 97.25 (VALID). Spec Step 34."""
         evidence = [_ev(f"i{i}", present=True, confidence=0.95) for i in range(4)]
         questions = [FollowUpQuestion(id=f"q{i}", question=f"Q{i}?", options=["a", "b"], evidence_basis=["x"], priority=1) for i in range(3)]
-        answers = {"q0": "a", "q1": "b", "q2": "a", "t": "clear"}
-        r = calculate_confidence(95.0, evidence, questions, answers, _consistency(100, ConsistencyStatus.CONSISTENT), {"t": "clear"})
+        answers = {"q0": "a", "q1": "b", "q2": "a"}
+        r = calculate_confidence(95.0, evidence, questions, answers,
+                                 _consistency(100, ConsistencyStatus.CONSISTENT), None,
+                                 gps_accuracy_m=5.0, historical_z_score=0.5)
         assert r.confidence_score == pytest.approx(97.25, abs=0.01)
-        assert r.routing == ConfidenceRouting.VALID_HIGH
+        assert r.routing == ConfidenceRouting.VALID
 
     def test_weights_sum_to_one(self):
         assert sum(CONFIDENCE_WEIGHTS.values()) == pytest.approx(1.0, abs=1e-9)
 
 
 class TestConfidence_Boundaries:
-    def test_boundary_49_review(self):
-        assert _routing_from_score(49.0) == ConfidenceRouting.REVIEW_REQUIRED
-        assert _routing_from_score(49.99) == ConfidenceRouting.REVIEW_REQUIRED
+    """Spec Step 37: <60 HUMAN_REVIEW, 60–79 REVIEW_REQUIRED, >=80 VALID."""
+    def test_boundary_59_human_review(self):
+        assert _routing_from_score(59.99) == ConfidenceRouting.HUMAN_REVIEW
 
-    def test_boundary_50_moderate(self):
-        assert _routing_from_score(50.0) == ConfidenceRouting.VALID_MODERATE
+    def test_boundary_60_review(self):
+        assert _routing_from_score(60.0) == ConfidenceRouting.REVIEW_REQUIRED
 
-    def test_boundary_74_moderate(self):
-        assert _routing_from_score(74.0) == ConfidenceRouting.VALID_MODERATE
-        assert _routing_from_score(74.99) == ConfidenceRouting.VALID_MODERATE
+    def test_boundary_79_review(self):
+        assert _routing_from_score(79.99) == ConfidenceRouting.REVIEW_REQUIRED
 
-    def test_boundary_75_high(self):
-        assert _routing_from_score(75.0) == ConfidenceRouting.VALID_HIGH
+    def test_boundary_80_valid(self):
+        assert _routing_from_score(80.0) == ConfidenceRouting.VALID
 
 
 class TestConfidence_MissingData:
@@ -462,12 +463,12 @@ class TestConfidence_MissingData:
         r = calculate_confidence(70.0, [_ev("turbidity", True, 0.85)], [], {},
                                  _consistency(100, ConsistencyStatus.CONSISTENT), None)
         assert r.historical_baseline_used is False
-        assert r.components.historical_site_consistency == pytest.approx(50.0)
+        assert r.components.historicalConsistency == pytest.approx(50.0)
         assert r.missing_data_notes
 
-    def test_empty_evidence_zero_richness(self):
+    def test_empty_evidence_zero_agreement(self):
         r = calculate_confidence(90.0, [], [], {}, _consistency(100, ConsistencyStatus.CONSISTENT), None)
-        assert r.components.evidence_richness == pytest.approx(0.0)
+        assert r.components.aiEvidenceAgreement == pytest.approx(0.0)
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -510,9 +511,13 @@ def _obs(**over):
 
 class TestPipeline_Flows:
     def test_successful_complete_run(self):
-        lb = _FakeLayerB([_ev("turbidity", present=False, confidence=0.9, reasoning="clear water")])
-        out = _pipeline(_FakeLayerA(85), lb).assess_observation(_obs(citizen_answers={"water_clarity": "clear"}))
-        assert out["status"] in ("VALID", REVIEW_REQUIRED)
+        # Strong evidence + good GPS + in-baseline z-score → should reach VALID.
+        lb = _FakeLayerB([_ev(f"i{i}", present=True, confidence=0.95) for i in range(4)])
+        out = _pipeline(_FakeLayerA(95), lb).assess_observation(_obs(
+            citizen_answers={"water_clarity": "clear"},
+            gps_accuracy_m=5.0, historical_z_score=0.5,
+        ))
+        assert out["status"] == "VALID"
         assert out["ai_audit"]["model_used"] == "gpt-4o"
         assert out["confidence"] is not None
 
@@ -574,8 +579,10 @@ class TestSafety_Guard:
         lb = _FakeLayerB([_ev("turbidity", present=True, confidence=0.9,
                               reasoning="The water is polluted by the factory upstream.")])
         out = _pipeline(_FakeLayerA(85), lb).assess_observation(_obs(citizen_answers={"water_clarity": "cloudy"}))
-        assert out["status"] == REVIEW_REQUIRED
+        # Never auto-VALID after sanitisation; must require a human.
+        assert out["status"] != "VALID"
         assert out["ai_audit"]["degraded_mode"] is True
+        assert out["ai_audit"]["human_review_required"] is True
         assert out["ai_audit"]["warnings"]
 
 

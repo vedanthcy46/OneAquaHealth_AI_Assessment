@@ -146,8 +146,9 @@ class TestAdversarialPipeline:
             "observation_id": "o3", "image": np.zeros((10, 10, 3), np.uint8),
             "citizen_answers": {"water_clarity": "not sure"},
         })
-        assert out["status"] in ("VALID", REVIEW_REQUIRED)
-        # low evidence richness → confidence low → REVIEW_REQUIRED expected
+        assert out["status"] in ("VALID", "REVIEW_REQUIRED", "HUMAN_REVIEW")
+        # low evidence agreement → confidence low → not auto-VALID
+        assert out["status"] != "VALID"
         assert out["ai_audit"]["confidence_score"] is not None
 
     def test_contradictory_citizen_answers_force_review(self):
@@ -170,7 +171,7 @@ class TestAdversarialPipeline:
             "citizen_answers": {"water_clarity": "clear"},
             # no site_baseline
         })
-        assert out["status"] in ("VALID", REVIEW_REQUIRED)
+        assert out["status"] in ("VALID", "REVIEW_REQUIRED", "HUMAN_REVIEW")
         assert out["confidence"] is not None
 
     def test_malformed_model_response_via_detector_triggers_review(self):
