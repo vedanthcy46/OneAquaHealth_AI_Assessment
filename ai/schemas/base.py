@@ -14,9 +14,21 @@ class AIEvidence(BaseModel):
     image_region: Optional[Dict[str, float]] = None
 
 class FollowUpQuestion(BaseModel):
-    key: str
-    question_text: str
+    id: str
+    question: str
+    type: str = "single_choice"
     options: List[str]
+    evidence_basis: List[str]
+    priority: int
+    required: bool = False
+
+    @property
+    def key(self) -> str:
+        return self.id
+
+    @property
+    def question_text(self) -> str:
+        return self.question
 
 class ValidationWarning(BaseModel):
     type: str

@@ -1,0 +1,19 @@
+# AquaGuard AI — Python Dependencies
+# Install with: pip install -r ai/requirements.txt
+
+# Core
+pydantic>=2.0.0
+numpy>=1.24.0
+
+# Image processing (Layer A)
+opencv-python>=4.8.0
+Pillow>=10.0.0
+imagehash>=4.3.1
+
+# AI providers (Layer B, C, D)
+openai>=1.0.0
+google-generativeai>=0.3.0
+
+# Testing
+pytest>=7.4.0
+pytest-asyncio>=0.21.0
