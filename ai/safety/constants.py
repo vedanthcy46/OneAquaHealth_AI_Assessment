@@ -12,8 +12,9 @@ from __future__ import annotations
 # completed. AI failure must NEVER silently produce a normal VALID result.
 REVIEW_REQUIRED = "REVIEW_REQUIRED"
 
-# Routing values considered "safe to trust without a human".
-VALID_ROUTINGS = frozenset({"VALID_HIGH", "VALID_MODERATE", "VALID"})
+# Routing values considered "safe to trust without a human" (spec Step 37: VALID
+# is the only auto-accepted tier; REVIEW_REQUIRED and HUMAN_REVIEW both need a human).
+VALID_ROUTINGS = frozenset({"VALID"})
 
 # Placeholder value used everywhere evidence is insufficient.
 UNKNOWN = "unknown"

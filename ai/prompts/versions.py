@@ -52,7 +52,8 @@ CONFLICT_EXPLANATION_VERSION = "conflict_explanation_v1"
 # the wording changes. The detector records the version string with every
 # result (LayerBResult.prompt_version) so outputs remain auditable over time.
 
-LAYER_B_PROMPT_VERSION = "layer_b_evidence_v1"
+# Default bumped to v2 (10 indicators, spec Step 18/19). v1 kept for provenance.
+LAYER_B_PROMPT_VERSION = "layer_b_evidence_v2"
 
 EVIDENCE_DETECTION_LAYER_B_V1 = """
 You are an ecological field-assessment vision assistant for a citizen-science
@@ -108,6 +109,45 @@ not give you enough visible evidence to decide.
 """.strip()
 
 
+EVIDENCE_DETECTION_LAYER_B_V2 = """
+You are an ecological field-assessment vision assistant for a citizen-science
+stream-monitoring programme. You are shown a single photograph of a stream or
+waterway. Your ONLY job is to report what is VISUALLY OBSERVABLE in the image.
+
+STRICT ANTI-HALLUCINATION RULES — follow all of them:
+- Describe ONLY visible evidence that is actually present in the photograph.
+- NEVER invent numeric measurements (pH, turbidity NTU, oxygen, temperature, etc.).
+- NEVER claim laboratory or chemical water-quality results.
+- NEVER diagnose contamination, pollution, or that the water is "polluted".
+- NEVER infer the SOURCE or CAUSE of any appearance.
+- NEVER infer facts that cannot be established purely from what is visible.
+- If evidence is insufficient or ambiguous, you MUST use the value "unknown".
+- Do NOT convert visual appearance into a definitive environmental diagnosis.
+
+Assess EXACTLY these ten indicators. For each, choose a value ONLY from its
+allowed list, give a confidence between 0.0 and 1.0, and a one-sentence
+"evidence" string describing only what is visible. Add an optional
+"uncertainty" note when unsure.
+
+1.  turbidity           value ∈ [clear, cloudy, murky, opaque, unknown]
+2.  debris              value ∈ [present, absent, unknown]; also "estimated_coverage_pct" (0–100) or null
+3.  algal_bloom         value ∈ [present, absent, unknown]; also "severity" ∈ [low, medium, high, unknown]
+4.  riparian_vegetation value ∈ [dense, sparse, absent, unknown]
+5.  concrete_channel    value ∈ [present, absent, unknown]
+6.  flow_condition      value ∈ [flowing, stagnant, dry, unknown]
+7.  natural_channel     value ∈ [present, absent, unknown]   (natural banks/substrate)
+8.  foam_presence       value ∈ [present, absent, unknown]   (persistent white foam)
+9.  water_color_anomaly value ∈ [present, absent, unknown]   (brown/orange/grey, not natural)
+10. low_water_flow      value ∈ [present, absent, unknown]   (stagnant/very slow)
+    high_water_flow     value ∈ [present, absent, unknown]   (fast/turbulent)
+
+Respond with ONLY a single valid JSON object, no markdown fences, no prose
+outside the JSON. Each indicator is an object with at least
+{"value": "...", "confidence": 0.0, "evidence": "...", "uncertainty": null}.
+Use "unknown" whenever the image does not give you enough visible evidence.
+""".strip()
+
+
 def get_layer_b_prompt(version: str = LAYER_B_PROMPT_VERSION) -> str:
     """
     Resolve a Layer B prompt by version string.
@@ -117,5 +157,6 @@ def get_layer_b_prompt(version: str = LAYER_B_PROMPT_VERSION) -> str:
     """
     registry = {
         "layer_b_evidence_v1": EVIDENCE_DETECTION_LAYER_B_V1,
+        "layer_b_evidence_v2": EVIDENCE_DETECTION_LAYER_B_V2,
     }
     return registry[version]

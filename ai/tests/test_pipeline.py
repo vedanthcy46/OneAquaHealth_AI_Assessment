@@ -98,20 +98,25 @@ def test_missing_answers_returns_waiting_with_questions():
 
 def test_complete_observation_runs_layers_d_and_confidence():
     layer_b = FakeLayerB(layer_b_result())
-    result = pipeline(FakeLayerA(80), layer_b).assess_observation(observation(
+    # Supply spec confidence inputs (good GPS, in-baseline z-score) so the run
+    # can reach the VALID tier (>=80) per spec Step 37.
+    result = pipeline(FakeLayerA(90), layer_b).assess_observation(observation(
         citizen_answers={
             "water_clarity": "murky",
             "debris": "some",
             "turbidity_appearance": "Very murky",
             "turbidity_duration": "1-7 days",
             "turbidity_change": "Yes, it is more cloudy",
-        }
+        },
+        gps_accuracy_m=5.0,
+        historical_z_score=0.5,
+        site_baseline=None,
     ))
 
     assert result["status"] == "VALID"
     assert result["routing_decision"] == "VALID"
     assert result["layer_d"]["status"] == "CONSISTENT"
-    assert result["confidence"]["confidence_score"] >= 50
+    assert result["confidence"]["confidence_score"] >= 80
     assert result["model_used"] == "mock-vision"
     assert result["prompt_version"] == "mock-prompt-v1"
 

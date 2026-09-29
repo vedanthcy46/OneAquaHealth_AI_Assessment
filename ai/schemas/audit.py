@@ -78,6 +78,12 @@ class AIAudit(BaseModel):
     conflicts: List[str] = Field(
         default_factory=list, description="Conflicts surfaced by cross-validation (Layer D)."
     )
+    input_hash: Optional[str] = Field(
+        None,
+        description="sha256 of the inputs sent for assessment (image ref + citizen "
+                    "answers), for reproducibility/provenance. Matches the shared "
+                    "AIResult.inputHash contract.",
+    )
     human_override: Optional[str] = Field(
         None,
         description="If a human reviewer overrides the AI, their decision is recorded "

@@ -17,6 +17,8 @@ Safety/reliability guarantees enforced here:
 
 from __future__ import annotations
 
+import hashlib
+import json
 import time
 from pathlib import Path
 from typing import Any, Dict, List, Optional
@@ -69,6 +71,29 @@ class AIPipelineOrchestrator:
         if image_bgr is None:
             raise ValueError(f"Unable to read image: {image}")
         return image_bgr
+
+    @staticmethod
+    def _input_hash(observation: Dict[str, Any]) -> str:
+        """
+        Deterministic sha256 of the assessment inputs, matching the shared
+        AIResult.inputHash contract. For array images the shape+dtype are used
+        (raw bytes would be huge and non-portable); for path/string images the
+        reference string is used. Citizen answers + baseline are included so the
+        same inputs always produce the same hash.
+        """
+        image = observation.get("image")
+        if isinstance(image, np.ndarray):
+            image_ref = f"ndarray:{image.shape}:{image.dtype}"
+        else:
+            image_ref = str(image)
+        payload = {
+            "observation_id": str(observation.get("observation_id", "")),
+            "image_ref": image_ref,
+            "citizen_answers": observation.get("citizen_answers"),
+            "site_baseline": observation.get("site_baseline"),
+        }
+        blob = json.dumps(payload, sort_keys=True, default=str).encode("utf-8")
+        return "sha256:" + hashlib.sha256(blob).hexdigest()
 
     # ── Result builders ───────────────────────────────────────────────────────
 
@@ -135,6 +160,7 @@ class AIPipelineOrchestrator:
         audit = AIAudit()
 
         observation_id = str(observation.get("observation_id", ""))
+        audit.input_hash = self._input_hash(observation)
         if not observation_id or "image" not in observation:
             return self._error_result(observation_id, started, "observation_id and image are required", audit)
 
@@ -201,7 +227,10 @@ class AIPipelineOrchestrator:
             return self._envelope(
                 observation_id, started, "WAITING_FOR_ANSWERS", audit,
                 layer_a=layer_a, layer_b=layer_b,
-                layer_c={"questions": self._dump(questions)}, anomaly=False,
+                layer_c={
+                    "questions": self._dump(questions),
+                    "citizen_notes": observation.get("citizen_notes"),
+                }, anomaly=False,
             )
 
         # ── Layer D + confidence ──
@@ -220,6 +249,8 @@ class AIPipelineOrchestrator:
             confidence = self._run_confidence(
                 layer_a, evidence, questions, citizen_answers, layer_d,
                 observation.get("site_baseline"),
+                gps_accuracy_m=observation.get("gps_accuracy_m"),
+                historical_z_score=observation.get("historical_z_score"),
             )
         except Exception as exc:
             logger.exception("Layer D / confidence failed for observation %s", observation_id)
@@ -233,34 +264,54 @@ class AIPipelineOrchestrator:
         confidence_score = self._extract_score(confidence)
         audit.confidence_score = confidence_score
         audit.conflicts = list(getattr(layer_d, "conflicts", []) or [])
+        historical_comparison = getattr(layer_d, "historical_comparison", {})
+        baseline_deviation = (
+            isinstance(historical_comparison, dict)
+            and any("diverges from baseline" in str(value) for value in historical_comparison.values())
+        )
 
-        review_needed = (
+        # Base routing comes from the confidence engine (VALID / REVIEW_REQUIRED
+        # / HUMAN_REVIEW per spec Step 37). Safety/degradation can only DOWNGRADE
+        # it away from VALID — it can never promote to VALID.
+        base_routing = getattr(getattr(confidence, "routing", None), "value", None)
+        if base_routing is None or confidence_score is None:
+            status = REVIEW_REQUIRED
+        else:
+            status = base_routing
+
+        if (
             audit.degraded_mode
             or audit.human_review_required
             or layer_d.requires_review
-            or confidence_score is None
-            or float(confidence_score) < 50.0
-        )
-        status = REVIEW_REQUIRED if review_needed else "VALID"
+            or baseline_deviation
+        ) and status == "VALID":
+            status = REVIEW_REQUIRED
+
         if status not in VALID_ROUTINGS:
             audit.require_human_review()
 
         return self._envelope(
             observation_id, started, status, audit,
             layer_a=layer_a, layer_b=layer_b,
-            layer_c={"questions": self._dump(questions), "answers": citizen_answers},
+            layer_c={
+                "questions": self._dump(questions),
+                "answers": citizen_answers,
+                "citizen_notes": observation.get("citizen_notes"),
+            },
             layer_d=layer_d, confidence=confidence,
-            anomaly=bool(layer_d.conflicts) or layer_d.requires_review,
+            anomaly=bool(layer_d.conflicts) or layer_d.requires_review or baseline_deviation,
         )
 
-    # ── Confidence adapter (tolerates class-based or functional API) ──
+    # ── Confidence adapter ──
 
-    def _run_confidence(self, layer_a, evidence, questions, citizen_answers, layer_d, baseline):
-        conf = self.confidence
-        if hasattr(conf, "calculate"):
-            return conf.calculate(layer_a, evidence, [])
-        return conf(
-            layer_a.quality_score, evidence, questions, citizen_answers, layer_d, baseline
+    def _run_confidence(
+        self, layer_a, evidence, questions, citizen_answers, layer_d, baseline,
+        *, gps_accuracy_m=None, historical_z_score=None,
+    ):
+        return self.confidence(
+            layer_a.quality_score, evidence, questions, citizen_answers, layer_d, baseline,
+            gps_accuracy_m=gps_accuracy_m,
+            historical_z_score=historical_z_score,
         )
 
     @staticmethod
