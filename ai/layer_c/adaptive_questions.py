@@ -2,6 +2,7 @@ import json
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 from ai.schemas.base import AIEvidence, FollowUpQuestion
+from ai.safety.pii import redact
 
 
 QUESTION_RULES: Dict[str, Tuple[int, str, str, List[str]]] = {
@@ -91,7 +92,9 @@ class AdaptiveQuestionGenerator:
         if self.provider is None or not fallback:
             return fallback
         allowed = [question.model_dump() for question in fallback]
-        prompt = json.dumps({"allowed_questions": allowed, "citizen_notes": citizen_notes or ""})
+        # Never expose PII to the provider: scrub citizen free-text notes.
+        safe_notes = redact(citizen_notes or "").text
+        prompt = json.dumps({"allowed_questions": allowed, "citizen_notes": safe_notes})
         for _ in range(2):
             try:
                 raw = await self.provider.generate_text(

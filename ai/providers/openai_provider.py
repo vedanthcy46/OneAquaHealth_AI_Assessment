@@ -23,6 +23,7 @@ import os
 from pathlib import Path
 
 from ai.providers.base import VisionEvidenceProvider, VisionResponse
+from ai.safety.pii import redact
 from ai.utils.exceptions import AIProviderError
 from ai.utils.logger import get_logger
 
@@ -82,6 +83,11 @@ class OpenAIVisionProvider(VisionEvidenceProvider):
         b64 = _encode_image(image_path)
         mime = _guess_mime(image_path)
 
+        # Defence-in-depth: never send PII to the provider. The Layer B prompt
+        # is fixed and PII-free, but we scrub unconditionally in case a caller
+        # ever passes citizen-derived text through.
+        safe_prompt = redact(prompt).text
+
         try:
             client = OpenAI(api_key=self._api_key, timeout=self._timeout_s)
             completion = client.chat.completions.create(
@@ -91,7 +97,7 @@ class OpenAIVisionProvider(VisionEvidenceProvider):
                     {
                         "role": "user",
                         "content": [
-                            {"type": "text", "text": prompt},
+                            {"type": "text", "text": safe_prompt},
                             {
                                 "type": "image_url",
                                 "image_url": {"url": f"data:{mime};base64,{b64}"},

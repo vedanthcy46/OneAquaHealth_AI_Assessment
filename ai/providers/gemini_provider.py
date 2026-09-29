@@ -21,6 +21,7 @@ import os
 from pathlib import Path
 
 from ai.providers.base import VisionEvidenceProvider, VisionResponse
+from ai.safety.pii import redact
 from ai.utils.exceptions import AIProviderError
 from ai.utils.logger import get_logger
 
@@ -76,6 +77,9 @@ class GeminiVisionProvider(VisionEvidenceProvider):
 
         mime = _guess_mime(image_path)
 
+        # Defence-in-depth: never send PII to the provider.
+        safe_prompt = redact(prompt).text
+
         try:
             genai.configure(api_key=self._api_key)
             model = genai.GenerativeModel(
@@ -83,7 +87,7 @@ class GeminiVisionProvider(VisionEvidenceProvider):
                 generation_config={"response_mime_type": "application/json"},
             )
             response = model.generate_content(
-                [prompt, {"mime_type": mime, "data": image_bytes}],
+                [safe_prompt, {"mime_type": mime, "data": image_bytes}],
                 request_options={"timeout": self._timeout_s},
             )
         except Exception as exc:  # network/timeout/API errors → normalise
