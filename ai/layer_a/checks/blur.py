@@ -2,19 +2,17 @@
 Layer A — Blur Detection Check
 
 Method : Laplacian variance on the grayscale image.
-Threshold: variance < 80 = fail (image is too blurry).
+Threshold: variance < 100 = fail (image is too blurry) — per spec Step 12.
 
 Scoring:
   - Variance is clamped to [0, 500].
   - Score = min(100, (variance / 500) * 100) mapped to 0–100.
   - This gives a smooth, deterministic, proportional score.
-  - A variance of 80 yields score ≈ 16 (below the pass threshold).
+  - A variance of 100 yields score = 20 (below the pass threshold).
 
 References:
   - Build Plan Step 12: "Laplacian variance on grayscale | variance < 100 → blurry"
-  - README Table: "< 80 → fail | −25 pts"
-  (The spec uses 80 as the hard threshold; we adopt this for the pass/fail gate
-   but use 500 as the normalisation ceiling to spread the score meaningfully.)
+  - 500 is used as the normalisation ceiling to spread the score meaningfully.
 """
 
 from __future__ import annotations
@@ -23,7 +21,7 @@ import numpy as np
 from ai.schemas.layer_a import BlurResult
 
 # ── Constants ──────────────────────────────────────────────────────────────────
-BLUR_FAIL_THRESHOLD: float = 80.0        # Laplacian variance below this = fail
+BLUR_FAIL_THRESHOLD: float = 100.0       # Laplacian variance below this = fail (spec Step 12)
 BLUR_SCORE_CEILING: float = 500.0        # Variance above this = perfect score (100)
 
 

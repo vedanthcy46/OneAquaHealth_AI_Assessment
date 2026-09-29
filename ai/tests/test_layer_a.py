@@ -174,8 +174,8 @@ class TestBrightnessCheck:
 
     def test_score_is_100_at_ideal_brightness(self):
         from ai.layer_a.checks.brightness import compute_brightness_score
-        # HSV V-channel mean of BGR (125,125,125) ≈ 125 (ideal)
-        img = _uniform_gray(125)
+        # HSV V-channel mean of BGR (130,130,130) ≈ 130 (ideal, midpoint of 50–210)
+        img = _uniform_gray(130)
         result = compute_brightness_score(img)
         assert result.score == 100
 

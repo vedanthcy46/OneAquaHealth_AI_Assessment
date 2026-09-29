@@ -32,13 +32,55 @@ from pydantic import ValidationError
 from ai.providers.base import VisionEvidenceProvider, VisionResponse
 from ai.prompts.versions import LAYER_B_PROMPT_VERSION, get_layer_b_prompt
 from ai.schemas.base import AIEvidence
-from ai.schemas.layer_b import LAYER_B_MODEL_FIELDS, LayerBResult
+from ai.schemas.layer_b import (
+    LAYER_B_MODEL_FIELDS,
+    LAYER_B_REQUIRED_FIELDS,
+    LayerBResult,
+)
 from ai.utils.exceptions import AIProviderError
 from ai.utils.logger import get_logger
 
 logger = get_logger(__name__)
 
 _FENCE_RE = re.compile(r"^```(?:json)?\s*|\s*```$", re.IGNORECASE | re.MULTILINE)
+
+
+def _first_balanced_object(text: str) -> Optional[str]:
+    """
+    Return the first COMPLETE, brace-balanced JSON object substring in `text`,
+    or None if there isn't one.
+
+    String-aware: braces that appear inside JSON string literals (including
+    escaped quotes) are NOT counted toward nesting depth. This avoids the
+    classic failure of naive first-{ / last-} slicing when a `reasoning` string
+    contains a `{` or `}` or when trailing prose follows the object.
+    """
+    start = text.find("{")
+    if start == -1:
+        return None
+
+    depth = 0
+    in_string = False
+    escaped = False
+    for i in range(start, len(text)):
+        ch = text[i]
+        if in_string:
+            if escaped:
+                escaped = False
+            elif ch == "\\":
+                escaped = True
+            elif ch == '"':
+                in_string = False
+            continue
+        if ch == '"':
+            in_string = True
+        elif ch == "{":
+            depth += 1
+        elif ch == "}":
+            depth -= 1
+            if depth == 0:
+                return text[start : i + 1]
+    return None  # unbalanced (truncated output)
 
 
 def _extract_json(raw: str) -> dict:
@@ -48,7 +90,8 @@ def _extract_json(raw: str) -> dict:
     Handles:
       - clean JSON,
       - JSON wrapped in ```json ... ``` fences,
-      - JSON with leading/trailing prose (extracts the outermost {...}).
+      - JSON with leading/trailing prose,
+      - braces embedded inside string values (string-aware scanning).
 
     Raises:
         AIProviderError if no parseable JSON object can be recovered.
@@ -69,19 +112,17 @@ def _extract_json(raw: str) -> dict:
     except json.JSONDecodeError:
         pass
 
-    # Fallback: grab the outermost brace-delimited region.
-    start = text.find("{")
-    end = text.rfind("}")
-    if start != -1 and end != -1 and end > start:
-        candidate = text[start : end + 1]
-        try:
-            obj = json.loads(candidate)
-            if isinstance(obj, dict):
-                return obj
-        except json.JSONDecodeError as exc:
-            raise AIProviderError(f"Malformed JSON in model output: {exc}") from exc
-
-    raise AIProviderError("No JSON object found in model output.")
+    # Robust fallback: extract the first brace-balanced object (string-aware).
+    candidate = _first_balanced_object(text)
+    if candidate is None:
+        raise AIProviderError("No complete JSON object found in model output.")
+    try:
+        obj = json.loads(candidate)
+    except json.JSONDecodeError as exc:
+        raise AIProviderError(f"Malformed JSON in model output: {exc}") from exc
+    if not isinstance(obj, dict):
+        raise AIProviderError("Recovered JSON was not an object.")
+    return obj
 
 
 class EcologicalEvidenceDetector:
@@ -190,11 +231,13 @@ class EcologicalEvidenceDetector:
     def _parse_and_validate(self, response: VisionResponse) -> LayerBResult:
         payload = _extract_json(response.text)
 
-        # Only keep the fields the model is meant to supply; provenance is added
-        # by the detector, never trusted from the model.
+        # Only keep the indicators the model is meant to supply; provenance is
+        # added by the detector, never trusted from the model.
         filtered = {k: payload[k] for k in LAYER_B_MODEL_FIELDS if k in payload}
 
-        missing = [k for k in LAYER_B_MODEL_FIELDS if k not in filtered]
+        # Only the six core indicators are REQUIRED; the additional spec
+        # indicators are optional and default to "unknown" when absent.
+        missing = [k for k in LAYER_B_REQUIRED_FIELDS if k not in filtered]
         if missing:
             raise AIProviderError(
                 f"Model output missing required indicators: {', '.join(missing)}"

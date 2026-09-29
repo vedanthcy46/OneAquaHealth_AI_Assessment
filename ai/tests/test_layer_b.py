@@ -185,9 +185,10 @@ class TestScenarios:
         assert result.concrete_channel.value.value == "present"
         assert result.flow_condition.value == FlowCondition.STAGNANT
 
-        # AIEvidence compatibility: 6 rows, present flags computed correctly.
+        # AIEvidence compatibility: 11 rows (10 spec indicators; flow split into
+        # low/high), present flags computed correctly.
         rows = result.to_ai_evidence()
-        assert len(rows) == 6
+        assert len(rows) == 11
         assert all(isinstance(r, AIEvidence) for r in rows)
         by_ind = {r.indicator: r for r in rows}
         assert by_ind["turbidity"].present is True
@@ -355,10 +356,17 @@ class TestDetectEvidence:
     def test_returns_ai_evidence_rows(self):
         det = _detector(_json_provider(_full_payload()))
         rows = det.detect_evidence("img.jpg", source_media_id="m1")
-        assert len(rows) == 6
+        # 10 spec indicators; flow_condition + low/high water flow → 11 rows.
+        assert len(rows) == 11
         assert all(isinstance(r, AIEvidence) for r in rows)
         indicators = {r.indicator for r in rows}
-        assert indicators == {
+        # The six core indicators must always be present.
+        assert {
             "turbidity", "debris", "algal_bloom",
             "riparian_vegetation", "concrete_channel", "flow_condition",
-        }
+        }.issubset(indicators)
+        # Plus the additional spec indicators.
+        assert {
+            "natural_channel", "foam_presence", "water_color_anomaly",
+            "low_water_flow", "high_water_flow",
+        }.issubset(indicators)

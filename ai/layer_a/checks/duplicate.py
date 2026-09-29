@@ -5,8 +5,8 @@ Method   : Perceptual hashing (pHash) via the `imagehash` library.
            Hamming distance between two 64-bit pHashes is computed.
            A similarity score is derived as: 1 - (hamming_dist / 64).
 
-Threshold: similarity > 0.95 = duplicate → hard rejection.
-           Equivalent to Hamming distance ≤ 3 bits (out of 64).
+Threshold: Hamming distance < 10 (of 64 bits) = duplicate → hard rejection
+           (spec Step 14). Equivalent similarity gate ≈ 0.844.
 
 This check requires a hash store to compare against.
 The `hash_store` parameter is a callable:
@@ -32,8 +32,19 @@ import numpy as np
 from ai.schemas.layer_a import DuplicateResult
 
 # ── Constants ──────────────────────────────────────────────────────────────────
-DUPLICATE_SIMILARITY_THRESHOLD: float = 0.95
 PHASH_BITS: int = 64  # imagehash phash default is 8×8 = 64 bits
+# Spec Step 14: "Hamming distance < 10 between phash strings → likely duplicate".
+DUPLICATE_HAMMING_THRESHOLD: int = 10
+# Equivalent similarity gate (1 - dist/64). Hamming < 10 ⇔ similarity > 0.84375.
+DUPLICATE_SIMILARITY_THRESHOLD: float = 1.0 - (DUPLICATE_HAMMING_THRESHOLD / PHASH_BITS)
+
+
+def is_duplicate_by_hamming(hash1: str, hash2: str) -> bool:
+    """Spec rule: two pHashes are duplicates when Hamming distance < 10."""
+    import imagehash
+
+    distance = imagehash.hex_to_hash(hash1) - imagehash.hex_to_hash(hash2)
+    return distance < DUPLICATE_HAMMING_THRESHOLD
 
 HashStoreFn = Callable[[str], Tuple[bool, Optional[float], Optional[str]]]
 

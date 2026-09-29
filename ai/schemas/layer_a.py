@@ -34,7 +34,7 @@ class BlurResult(BaseModel):
     score: int = Field(..., ge=0, le=100, description="0 = maximally blurry, 100 = sharp")
     passed: bool
     laplacian_variance: float = Field(..., description="Raw Laplacian variance measured")
-    threshold: float = Field(80.0, description="Variance below this is considered blurry")
+    threshold: float = Field(100.0, description="Variance below this is considered blurry (spec Step 12)")
     reason: str
     processing_ms: float = 0.0
 
@@ -43,8 +43,8 @@ class BrightnessResult(BaseModel):
     score: int = Field(..., ge=0, le=100, description="0 = unusable brightness, 100 = ideal")
     passed: bool
     hsv_value_mean: float = Field(..., description="Mean of HSV Value channel (0–255)")
-    low_threshold: float = Field(30.0, description="Below this = too dark")
-    high_threshold: float = Field(220.0, description="Above this = overexposed")
+    low_threshold: float = Field(50.0, description="Below this = too dark (spec Step 12)")
+    high_threshold: float = Field(210.0, description="Above this = overexposed (spec Step 12)")
     reason: str
     processing_ms: float = 0.0
 
@@ -73,7 +73,7 @@ class DuplicateResult(BaseModel):
     similarity: Optional[float] = Field(None, description="Perceptual similarity 0.0–1.0 vs matched image")
     matched_media_id: Optional[str] = Field(None, description="ID of the image this matches")
     phash: Optional[str] = Field(None, description="pHash hex string of this image")
-    threshold: float = Field(0.95, description="Similarity above this triggers hard rejection")
+    threshold: float = Field(0.84375, description="Similarity above this (Hamming<10) triggers hard rejection (spec Step 14)")
     reason: str
     processing_ms: float = 0.0
 

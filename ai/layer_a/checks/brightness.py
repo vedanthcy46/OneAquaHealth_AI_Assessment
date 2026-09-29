@@ -2,23 +2,23 @@
 Layer A — Brightness Check
 
 Method : Convert image to HSV colour space; measure mean of the Value channel.
-Thresholds:
-  - Mean < 30  → too dark  (fail)
-  - Mean > 220 → overexposed (fail)
-  - 30–220      → acceptable (pass)
+Thresholds (spec Step 12):
+  - Mean < 50  → too dark  (fail)
+  - Mean > 210 → overexposed (fail)
+  - 50–210      → acceptable (pass)
 
 Scoring (deterministic, documented):
-  The ideal mean is 125 (midpoint of 30–220). The score is highest at 125
+  The ideal mean is 130 (midpoint of 50–210). The score is highest at 130
   and falls off linearly toward either threshold:
 
-    score = 100 × (1 - |mean - 125| / 95)   clamped to [0, 100]
+    score = 100 × (1 - |mean - 130| / 80)   clamped to [0, 100]
 
-  At mean=30  → score = 0 (exactly at low threshold)
-  At mean=125 → score = 100 (ideal)
-  At mean=220 → score = 0 (exactly at high threshold)
+  At mean=50  → score = 0 (exactly at low threshold)
+  At mean=130 → score = 100 (ideal)
+  At mean=210 → score = 0 (exactly at high threshold)
 
 References:
-  - README Table: "HSV value channel mean | < 30 or > 220 → fail | −15 pts"
+  - Build Plan Step 12: "Pixel histogram mean | mean < 50 (dark) or > 210 (blown)"
 """
 
 from __future__ import annotations
@@ -27,10 +27,10 @@ import numpy as np
 from ai.schemas.layer_a import BrightnessResult
 
 # ── Constants ──────────────────────────────────────────────────────────────────
-BRIGHTNESS_LOW: float = 30.0      # Below this = too dark
-BRIGHTNESS_HIGH: float = 220.0    # Above this = overexposed
-BRIGHTNESS_IDEAL: float = 125.0   # Midpoint used for linear scoring
-BRIGHTNESS_HALF_RANGE: float = 95.0  # (IDEAL - LOW) == (HIGH - IDEAL)
+BRIGHTNESS_LOW: float = 50.0      # Below this = too dark (spec Step 12)
+BRIGHTNESS_HIGH: float = 210.0    # Above this = overexposed (spec Step 12)
+BRIGHTNESS_IDEAL: float = 130.0   # Midpoint used for linear scoring ((50+210)/2)
+BRIGHTNESS_HALF_RANGE: float = 80.0  # (IDEAL - LOW) == (HIGH - IDEAL)
 
 
 def compute_brightness_score(image_bgr: np.ndarray) -> BrightnessResult:

@@ -88,6 +88,13 @@ class FlowCondition(str, Enum):
     UNKNOWN = "unknown"
 
 
+class WaterColorAnomaly(str, Enum):
+    """Non-natural water colouration (brown, orange, grey, etc.) visibly present."""
+    PRESENT = "present"
+    ABSENT = "absent"
+    UNKNOWN = "unknown"
+
+
 # ─────────────────────────────────────────────
 # Per-indicator models
 # ─────────────────────────────────────────────
@@ -155,6 +162,36 @@ class FlowConditionIndicator(_IndicatorBase):
     )
 
 
+class NaturalChannelIndicator(_IndicatorBase):
+    value: Presence = Field(
+        ..., description="Whether the channel has natural banks/substrate (rock/gravel/soil)."
+    )
+
+
+class FoamPresenceIndicator(_IndicatorBase):
+    value: Presence = Field(
+        ..., description="Whether persistent white foam is visible on the surface."
+    )
+
+
+class WaterColorAnomalyIndicator(_IndicatorBase):
+    value: WaterColorAnomaly = Field(
+        ..., description="Whether a non-natural water colour (brown/orange/grey) is visible."
+    )
+
+
+class LowWaterFlowIndicator(_IndicatorBase):
+    value: Presence = Field(
+        ..., description="Whether the water appears stagnant or very slow-moving."
+    )
+
+
+class HighWaterFlowIndicator(_IndicatorBase):
+    value: Presence = Field(
+        ..., description="Whether the water appears fast-moving or turbulent."
+    )
+
+
 # ─────────────────────────────────────────────
 # Unified Layer B result
 # ─────────────────────────────────────────────
@@ -173,6 +210,35 @@ class LayerBResult(BaseModel):
     riparian_vegetation: RiparianVegetationIndicator
     concrete_channel: ConcreteChannelIndicator
     flow_condition: FlowConditionIndicator
+
+    # ── Additional spec indicators (Step 18/19). Optional with "unknown"
+    #    defaults so older 6-indicator payloads/tests remain valid, while the
+    #    versioned prompt requests all ten. ──
+    natural_channel: NaturalChannelIndicator = Field(
+        default_factory=lambda: NaturalChannelIndicator(
+            value=Presence.UNKNOWN, confidence=0.0, evidence="Not assessed."
+        )
+    )
+    foam_presence: FoamPresenceIndicator = Field(
+        default_factory=lambda: FoamPresenceIndicator(
+            value=Presence.UNKNOWN, confidence=0.0, evidence="Not assessed."
+        )
+    )
+    water_color_anomaly: WaterColorAnomalyIndicator = Field(
+        default_factory=lambda: WaterColorAnomalyIndicator(
+            value=WaterColorAnomaly.UNKNOWN, confidence=0.0, evidence="Not assessed."
+        )
+    )
+    low_water_flow: LowWaterFlowIndicator = Field(
+        default_factory=lambda: LowWaterFlowIndicator(
+            value=Presence.UNKNOWN, confidence=0.0, evidence="Not assessed."
+        )
+    )
+    high_water_flow: HighWaterFlowIndicator = Field(
+        default_factory=lambda: HighWaterFlowIndicator(
+            value=Presence.UNKNOWN, confidence=0.0, evidence="Not assessed."
+        )
+    )
 
     # ── Provenance / tracking ──
     model_used: str = Field(
@@ -207,6 +273,11 @@ class LayerBResult(BaseModel):
         "riparian_vegetation": {RiparianVegetation.DENSE, RiparianVegetation.SPARSE},
         "concrete_channel": {ConcreteChannel.PRESENT},
         "flow_condition": {FlowCondition.FLOWING, FlowCondition.STAGNANT},
+        "natural_channel": {Presence.PRESENT},
+        "foam_presence": {Presence.PRESENT},
+        "water_color_anomaly": {WaterColorAnomaly.PRESENT},
+        "low_water_flow": {Presence.PRESENT},
+        "high_water_flow": {Presence.PRESENT},
     }
 
     def to_ai_evidence(self) -> List[AIEvidence]:
@@ -240,12 +311,17 @@ class LayerBResult(BaseModel):
         rows.append(_row("riparian_vegetation", self.riparian_vegetation, self._PRESENT_VALUES["riparian_vegetation"]))
         rows.append(_row("concrete_channel", self.concrete_channel, self._PRESENT_VALUES["concrete_channel"]))
         rows.append(_row("flow_condition", self.flow_condition, self._PRESENT_VALUES["flow_condition"]))
+        rows.append(_row("natural_channel", self.natural_channel, self._PRESENT_VALUES["natural_channel"]))
+        rows.append(_row("foam_presence", self.foam_presence, self._PRESENT_VALUES["foam_presence"]))
+        rows.append(_row("water_color_anomaly", self.water_color_anomaly, self._PRESENT_VALUES["water_color_anomaly"]))
+        rows.append(_row("low_water_flow", self.low_water_flow, self._PRESENT_VALUES["low_water_flow"]))
+        rows.append(_row("high_water_flow", self.high_water_flow, self._PRESENT_VALUES["high_water_flow"]))
         return rows
 
 
-# Fields the model is expected to return (provenance is filled in by the
-# detector, not by the model itself).
-LAYER_B_MODEL_FIELDS = (
+# Indicators the model MUST return (provenance is filled in by the detector,
+# not by the model itself). These six are required for a valid result.
+LAYER_B_REQUIRED_FIELDS = (
     "turbidity",
     "debris",
     "algal_bloom",
@@ -253,3 +329,16 @@ LAYER_B_MODEL_FIELDS = (
     "concrete_channel",
     "flow_condition",
 )
+
+# Additional spec indicators (Step 18/19). Requested by the prompt and accepted
+# when present, but optional so older 6-indicator payloads remain valid.
+LAYER_B_OPTIONAL_FIELDS = (
+    "natural_channel",
+    "foam_presence",
+    "water_color_anomaly",
+    "low_water_flow",
+    "high_water_flow",
+)
+
+# All ten indicators the versioned prompt asks the model to assess.
+LAYER_B_MODEL_FIELDS = LAYER_B_REQUIRED_FIELDS + LAYER_B_OPTIONAL_FIELDS
