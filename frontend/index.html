@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>AquaGuard AI — Trusted Citizen Stream Assessment</title>
+    <meta
+      name="description"
+      content="AI improves the reliability, consistency, and completeness of citizen-generated stream health evidence for OneAquaHealth IEEE Track 3."
+    />
+    <link rel="manifest" href="/manifest.json" />
+    <meta name="theme-color" content="#0284c7" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+    <script>
+      if ('serviceWorker' in navigator) {
+        window.addEventListener('load', () => {
+          navigator.serviceWorker.register('/service-worker.js').catch((err) => {
+            console.log('ServiceWorker registration optional in dev:', err);
+          });
+        });
+      }
+    </script>
+  </body>
+</html>
