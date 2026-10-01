@@ -8,3 +8,9 @@
 /temp_content.py
 /_docx_raw
 /_extracted_photos
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+.coverage
+htmlcov/
