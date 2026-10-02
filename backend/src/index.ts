@@ -1,4 +1,6 @@
 import 'dotenv/config';
+import * as fs from 'fs';
+import * as path from 'path';
 import Fastify from 'fastify';
 import cors from '@fastify/cors';
 import helmet from '@fastify/helmet';
@@ -16,6 +18,7 @@ import { observationRoutes } from './routes/observations';
 import { mediaRoutes }       from './routes/media';
 import { reviewRoutes }      from './routes/review';
 import { exportRoutes }      from './routes/export';
+import { aiRoutes }          from './routes/ai';
 import { db } from './db';
 
 const app = Fastify({
@@ -31,7 +34,7 @@ async function build() {
   // ── Security ──────────────────────────────────────────────────────────────
   await app.register(helmet, { global: true });
   await app.register(cors, {
-    origin: [env.FRONTEND_URL, 'http://localhost:3000'],
+    origin: [env.FRONTEND_URL, 'http://localhost:3000', 'http://localhost:5173'],
     credentials: true,
   });
   await app.register(rateLimit, {
@@ -81,6 +84,28 @@ async function build() {
     };
   });
 
+  // ── Serve Uploaded Media ──────────────────────────────────────────────────
+  app.get('/uploads/:filename', async (req, reply) => {
+    const { filename } = req.params as { filename: string };
+    const safeFilename = path.basename(filename);
+    const filePath = path.join(process.cwd(), 'uploads', safeFilename);
+    if (!fs.existsSync(filePath)) {
+      return reply.status(404).send({ success: false, error: 'File not found' });
+    }
+    const ext = path.extname(safeFilename).toLowerCase();
+    const mimeTypes: Record<string, string> = {
+      '.jpg': 'image/jpeg',
+      '.jpeg': 'image/jpeg',
+      '.png': 'image/png',
+      '.webp': 'image/webp',
+      '.mp4': 'video/mp4',
+      '.webm': 'video/webm',
+    };
+    reply.header('Content-Type', mimeTypes[ext] || 'application/octet-stream');
+    reply.header('Cache-Control', 'public, max-age=86400');
+    return reply.send(fs.createReadStream(filePath));
+  });
+
   // ── Routes ────────────────────────────────────────────────────────────────
   await app.register(authRoutes,        { prefix: '/auth' });
   await app.register(siteRoutes,        { prefix: '/sites' });
@@ -88,6 +113,7 @@ async function build() {
   await app.register(mediaRoutes,       { prefix: '/observations' });
   await app.register(reviewRoutes,      { prefix: '/review' });
   await app.register(exportRoutes,      { prefix: '/export' });
+  await app.register(aiRoutes,          { prefix: '/ai' });
 
   // ── Global error handler ──────────────────────────────────────────────────
   app.setErrorHandler((error, req, reply) => {

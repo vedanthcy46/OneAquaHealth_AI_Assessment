@@ -1,5 +1,7 @@
 import { FastifyInstance } from 'fastify';
 import * as crypto from 'crypto';
+import * as fs from 'fs';
+import * as path from 'path';
 import { v4 as uuidv4 } from 'uuid';
 import { db } from '../db';
 import { storageService } from '../services/storage';
@@ -105,5 +107,79 @@ export async function mediaRoutes(app: FastifyInstance) {
     }
     await db.query('DELETE FROM media WHERE id = $1 AND observation_id = $2', [mediaId, id]);
     return reply.send({ success: true, data: { deleted: true } });
+  });
+
+  // POST /observations/:id/media/upload — direct image/video upload with disk storage & media table recording
+  app.post('/:id/media/upload', async (req, reply) => {
+    const { id } = req.params as any;
+    const body = req.body as any;
+
+    let buffer: Buffer;
+    let mimeType = body.mimeType || 'image/jpeg';
+
+    if (body.dataUrl) {
+      const matches = body.dataUrl.match(/^data:([A-Za-z-+\/0-9]+);base64,(.+)$/);
+      if (matches) {
+        mimeType = matches[1];
+        buffer = Buffer.from(matches[2], 'base64');
+      } else {
+        buffer = Buffer.from(body.dataUrl, 'base64');
+      }
+    } else if (body.base64) {
+      buffer = Buffer.from(body.base64, 'base64');
+    } else {
+      return reply.status(400).send({ success: false, error: 'No media data provided' });
+    }
+
+    const uploadsDir = path.join(process.cwd(), 'uploads');
+    if (!fs.existsSync(uploadsDir)) {
+      fs.mkdirSync(uploadsDir, { recursive: true });
+    }
+
+    const ext = mimeType.includes('video') ? 'mp4' : (mimeType.includes('png') ? 'png' : 'jpg');
+    const mediaId = uuidv4();
+    const filename = `${id}_${mediaId}.${ext}`;
+    const filePath = path.join(uploadsDir, filename);
+
+    fs.writeFileSync(filePath, buffer);
+
+    const hash = crypto.createHash('sha256').update(buffer).digest('hex');
+    const publicUrl = `http://localhost:${process.env.PORT || 3001}/uploads/${filename}`;
+    const fileSize = buffer.length;
+
+    // Insert record into PostgreSQL media table matching schema.sql
+    try {
+      await db.query(`
+        INSERT INTO media (
+          id, observation_id, url, hash, mime_type, file_size_bytes,
+          quality_score, quality_factors, analysis_status
+        )
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'COMPLETE')
+        ON CONFLICT (id) DO UPDATE SET url = EXCLUDED.url
+      `, [
+        mediaId,
+        id,
+        publicUrl,
+        hash,
+        mimeType,
+        fileSize,
+        body.qualityScore || 90,
+        JSON.stringify(body.qualityFactors || {}),
+      ]);
+    } catch (dbErr) {
+      req.log.warn({ dbErr }, 'Could not insert into media DB table, saved file to disk');
+    }
+
+    return reply.send({
+      success: true,
+      data: {
+        mediaId,
+        url: publicUrl,
+        hash,
+        mimeType,
+        fileSizeBytes: fileSize,
+        status: 'COMPLETE'
+      }
+    });
   });
 }

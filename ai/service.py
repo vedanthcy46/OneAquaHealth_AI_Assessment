@@ -53,9 +53,10 @@ def _build_orchestrator() -> AIPipelineOrchestrator:
     from ai.layer_b.evidence_detector import EcologicalEvidenceDetector
     from ai.providers.openai_provider import OpenAIVisionProvider
     from ai.providers.gemini_provider import GeminiVisionProvider
+    from ai.providers.local_cv_provider import LocalCVProvider
 
     layer_b = EcologicalEvidenceDetector(
-        OpenAIVisionProvider(), fallbacks=[GeminiVisionProvider()]
+        OpenAIVisionProvider(), fallbacks=[GeminiVisionProvider(), LocalCVProvider()]
     )
     return AIPipelineOrchestrator(
         layer_a=ImageQualityEngine(),

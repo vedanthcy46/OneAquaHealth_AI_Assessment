@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   UserCheck,
   Eye,
@@ -8,7 +8,40 @@ import type { Observation } from '../types';
 import { OfflineStorageService } from '../services/offlineStorage';
 
 export const MyObservations: React.FC = () => {
-  const [observations] = useState<Observation[]>(OfflineStorageService.getObservations());
+  const [observations, setObservations] = useState<Observation[]>(OfflineStorageService.getObservations());
+
+  useEffect(() => {
+    fetch('http://localhost:3001/observations?limit=100')
+      .then(r => r.json())
+      .then(data => {
+        if (data.success && data.data?.items?.length > 0) {
+          const mapped = data.data.items.map((o: any) => ({
+            id: o.id,
+            siteId: o.site_id,
+            siteName: o.site_name || 'Unknown Site',
+            observerId: o.observer_id,
+            observerName: o.observer_name || 'Citizen',
+            status: o.status,
+            syncStatus: 'SYNCED' as const,
+            gps: { lat: o.lat || 0, lng: o.lng || 0, accuracy: o.gps_accuracy_m || 5 },
+            observedAt: o.observed_at,
+            envObservations: o.env_observations || {},
+            qualityScore: o.quality_score,
+            aiResult: null,
+            validationWarnings: [],
+            media: o.media || [],
+            followupQuestions: [],
+            createdAt: o.created_at,
+            updatedAt: o.updated_at
+          }));
+          const offline = OfflineStorageService.getObservations();
+          const apiIds = new Set(mapped.map((o: any) => o.id));
+          const extra = offline.filter(o => !apiIds.has(o.id));
+          setObservations([...mapped, ...extra]);
+        }
+      })
+      .catch(() => {});
+  }, []);
   const [selectedObs, setSelectedObs] = useState<Observation | null>(null);
 
   return (
@@ -172,6 +205,59 @@ export const MyObservations: React.FC = () => {
                   <li>Bank/Channel: {selectedObs.envObservations.channelType}</li>
                 </ul>
               </div>
+
+              {/* Uploaded Field Media Evidence */}
+              {selectedObs.media && selectedObs.media.length > 0 && (
+                <div style={{ background: 'var(--bg-tertiary)', padding: '16px', borderRadius: 'var(--radius-sm)' }}>
+                  <strong style={{ color: '#38bdf8' }}>
+                    Uploaded Field Evidence ({selectedObs.media.length} items):
+                  </strong>
+                  <div
+                    style={{
+                      display: 'grid',
+                      gridTemplateColumns: 'repeat(auto-fit, minmax(130px, 1fr))',
+                      gap: '12px',
+                      marginTop: '10px'
+                    }}
+                  >
+                    {selectedObs.media.map((m, idx) => {
+                      const isVideo = m.mimeType?.startsWith('video') || m.url?.endsWith('.mp4') || m.id?.includes('vid');
+                      return (
+                        <div
+                          key={m.id || idx}
+                          style={{
+                            background: '#091122',
+                            border: '1px solid var(--border-subtle)',
+                            borderRadius: '8px',
+                            overflow: 'hidden',
+                            padding: '6px'
+                          }}
+                        >
+                          <div style={{ fontSize: '11px', color: isVideo ? '#34d399' : '#38bdf8', marginBottom: '4px', fontWeight: 600 }}>
+                            {isVideo ? '🎥 Stream Video' : `📷 Evidence #${idx + 1}`}
+                          </div>
+                          {isVideo ? (
+                            <video
+                              src={m.url}
+                              controls
+                              style={{ width: '100%', height: '90px', objectFit: 'cover', borderRadius: '4px' }}
+                            />
+                          ) : (
+                            <img
+                              src={m.url}
+                              alt={`Evidence ${idx + 1}`}
+                              style={{ width: '100%', height: '90px', objectFit: 'cover', borderRadius: '4px' }}
+                            />
+                          )}
+                          <div style={{ fontSize: '10px', color: 'var(--text-muted)', marginTop: '4px', textAlign: 'center' }}>
+                            Quality: {m.qualityScore || 90}/100
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
             </div>
           </div>
         </div>

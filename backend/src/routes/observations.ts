@@ -64,7 +64,22 @@ export async function observationRoutes(app: FastifyInstance) {
     params.push(limit, offset);
 
     const res = await db.query(`
-      SELECT o.*, s.name AS site_name
+      SELECT o.*, s.name AS site_name,
+        COALESCE(
+          (SELECT json_agg(json_build_object(
+            'id', m.id,
+            'observationId', m.observation_id,
+            'url', m.url,
+            'mimeType', m.mime_type,
+            'hash', m.hash,
+            'fileSizeBytes', m.file_size_bytes,
+            'qualityScore', m.quality_score,
+            'qualityFactors', m.quality_factors,
+            'analysisStatus', m.analysis_status,
+            'captureTimestamp', m.capture_timestamp
+          )) FROM media m WHERE m.observation_id = o.id),
+          '[]'::json
+        ) AS media
       FROM observations o
       LEFT JOIN sites s ON s.id = o.site_id
       ${where}
@@ -81,7 +96,22 @@ export async function observationRoutes(app: FastifyInstance) {
     const { sub, role } = req.user as any;
 
     const res = await db.query(`
-      SELECT o.*, s.name AS site_name, s.city, s.waterbody
+      SELECT o.*, s.name AS site_name, s.city, s.waterbody,
+        COALESCE(
+          (SELECT json_agg(json_build_object(
+            'id', m.id,
+            'observationId', m.observation_id,
+            'url', m.url,
+            'mimeType', m.mime_type,
+            'hash', m.hash,
+            'fileSizeBytes', m.file_size_bytes,
+            'qualityScore', m.quality_score,
+            'qualityFactors', m.quality_factors,
+            'analysisStatus', m.analysis_status,
+            'captureTimestamp', m.capture_timestamp
+          )) FROM media m WHERE m.observation_id = o.id),
+          '[]'::json
+        ) AS media
       FROM observations o
       LEFT JOIN sites s ON s.id = o.site_id
       WHERE o.id = $1

@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   ClipboardList,
   CheckCircle2,
@@ -16,10 +16,53 @@ import type { Observation, ReviewDecision } from '../types';
 import { OfflineStorageService } from '../services/offlineStorage';
 
 export const ReviewerDashboard: React.FC = () => {
-  const [observations, setObservations] = useState<Observation[]>(
-    OfflineStorageService.getObservations()
-  );
+  const [observations, setObservations] = useState<Observation[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    const load = async () => {
+      // Start with offline
+      const offline = OfflineStorageService.getObservations();
+      setObservations(offline);
+      // Attempt to fetch real data
+      try {
+        const res = await fetch('http://localhost:3001/observations?limit=50');
+        const data = await res.json();
+        if (data.success && data.data?.items?.length > 0) {
+          const apiIds = new Set(data.data.items.map((o: any) => o.id));
+          const offlineOnly = offline.filter(o => !apiIds.has(o.id));
+          const mapped = data.data.items.map((o: any) => ({
+            id: o.id,
+            siteId: o.site_id,
+            siteName: o.site_name || 'Unknown Site',
+            observerId: o.observer_id,
+            observerName: o.observer_name || 'Citizen',
+            status: o.status,
+            syncStatus: 'SYNCED' as const,
+            gps: { lat: o.lat || 0, lng: o.lng || 0, accuracy: o.gps_accuracy_m || 5 },
+            observedAt: o.observed_at,
+            envObservations: o.env_observations || {},
+            qualityScore: o.quality_score,
+            aiResult: o.ai_result || null,
+            validationWarnings: [],
+            media: o.media || [],
+            followupQuestions: [],
+            createdAt: o.created_at,
+            updatedAt: o.updated_at
+          }));
+          setObservations([...mapped, ...offlineOnly]);
+        }
+      } catch (e) {
+        console.warn('Backend unavailable, using offline data only');
+      } finally {
+        setLoading(false);
+      }
+    };
+    load();
+  }, []);
+
   const [selectedObs, setSelectedObs] = useState<Observation | null>(null);
+  const [selectedMediaIdx, setSelectedMediaIdx] = useState<number>(0);
 
   // Filters
   const [statusFilter, setStatusFilter] = useState<string>('ALL');
@@ -63,7 +106,7 @@ export const ReviewerDashboard: React.FC = () => {
     return true;
   });
 
-  const handleReviewAction = (decision: ReviewDecision) => {
+  const handleReviewAction = async (decision: ReviewDecision) => {
     if (!selectedObs) return;
 
     const updatedObs: Observation = {
@@ -99,7 +142,19 @@ export const ReviewerDashboard: React.FC = () => {
     setObservations(OfflineStorageService.getObservations());
     setSelectedObs(updatedObs);
     setIsCorrecting(false);
+
+    // Sync review decision to backend
+    try {
+      await fetch(`http://localhost:3001/review/${selectedObs.id}/decision`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ decision, reason: reviewReason })
+      });
+    } catch (e) {
+      console.warn('Could not sync review to backend');
+    }
   };
+
 
   return (
     <div className="app-container" style={{ marginTop: '28px' }}>
@@ -299,7 +354,7 @@ export const ReviewerDashboard: React.FC = () => {
                       id={`btn-inspect-obs-${obs.id}`}
                       className="btn btn-secondary"
                       style={{ fontSize: '12px', padding: '6px 12px' }}
-                      onClick={() => setSelectedObs(obs)}
+                      onClick={() => { setSelectedObs(obs); setSelectedMediaIdx(0); }}
                     >
                       <Eye size={13} />
                       Inspect & Review
@@ -401,6 +456,35 @@ export const ReviewerDashboard: React.FC = () => {
                   </button>
                 </div>
 
+                                {/* Multi-Media Switcher Tabs */}
+                {selectedObs.media && selectedObs.media.length > 1 && (
+                  <div style={{ display: 'flex', gap: '6px', marginBottom: '10px', flexWrap: 'wrap' }}>
+                    {selectedObs.media.map((m, idx) => {
+                      const isVid = m.mimeType?.startsWith('video') || m.url?.endsWith('.mp4') || m.id?.includes('vid');
+                      const isActive = selectedMediaIdx === idx;
+                      return (
+                        <button
+                          key={m.id || idx}
+                          type="button"
+                          onClick={() => setSelectedMediaIdx(idx)}
+                          style={{
+                            padding: '5px 12px',
+                            borderRadius: '6px',
+                            fontSize: '11px',
+                            fontWeight: 600,
+                            cursor: 'pointer',
+                            background: isActive ? '#0284c7' : '#1e293b',
+                            border: isActive ? '1px solid #38bdf8' : '1px solid #334155',
+                            color: isActive ? '#ffffff' : '#94a3b8'
+                          }}
+                        >
+                          {isVid ? '🎥 Stream Video' : `📷 Evidence #${idx + 1}`}
+                        </button>
+                      );
+                    })}
+                  </div>
+                )}
+
                 <div
                   style={{
                     position: 'relative',
@@ -411,54 +495,73 @@ export const ReviewerDashboard: React.FC = () => {
                     minHeight: '340px',
                   }}
                 >
-                  <img
-                    src={selectedObs.media[0]?.url || ''}
-                    alt="Review stream evidence"
-                    style={{ width: '100%', height: '100%', objectFit: 'cover' }}
-                  />
+                  {(() => {
+                    const currentMedia = selectedObs.media[selectedMediaIdx] || selectedObs.media[0];
+                    const isVideo = currentMedia?.mimeType?.startsWith('video') || currentMedia?.url?.endsWith('.mp4') || currentMedia?.id?.includes('vid');
 
-                  {/* Render Bounding Boxes */}
-                  {showBoundingBoxes &&
-                    selectedObs.aiResult?.evidence
-                      ?.filter((e) => e.imageRegion)
-                      .map((ev, i) => {
-                        const r = ev.imageRegion!;
-                        const isTurbidity = ev.indicator === 'turbidity';
-                        return (
-                          <div
-                            key={i}
-                            style={{
-                              position: 'absolute',
-                              left: `${r.x * 100}%`,
-                              top: `${r.y * 100}%`,
-                              width: `${r.w * 100}%`,
-                              height: `${r.h * 100}%`,
-                              border: isTurbidity ? '2px dashed #f59e0b' : '2px solid #ef4444',
-                              background: isTurbidity ? 'rgba(245, 158, 11, 0.2)' : 'rgba(239, 68, 68, 0.2)',
-                              borderRadius: '4px',
-                              boxShadow: '0 0 12px rgba(0, 0, 0, 0.6)',
-                              pointerEvents: 'none',
-                            }}
-                          >
-                            <span
-                              style={{
-                                position: 'absolute',
-                                top: '-20px',
-                                left: '0',
-                                background: 'rgba(7, 13, 24, 0.9)',
-                                color: isTurbidity ? '#fbbf24' : '#f87171',
-                                fontSize: '10px',
-                                fontWeight: 700,
-                                padding: '2px 6px',
-                                borderRadius: '4px',
-                                whiteSpace: 'nowrap',
-                              }}
-                            >
-                              {r.label || ev.indicator} ({(ev.confidence * 100).toFixed(0)}%)
-                            </span>
-                          </div>
-                        );
-                      })}
+                    if (isVideo) {
+                      return (
+                        <video
+                          src={currentMedia?.url}
+                          controls
+                          style={{ width: '100%', height: '340px', objectFit: 'contain', background: '#000' }}
+                        />
+                      );
+                    }
+
+                    return (
+                      <>
+                        <img
+                          src={currentMedia?.url || ''}
+                          alt="Review stream evidence"
+                          style={{ width: '100%', height: '100%', objectFit: 'cover' }}
+                        />
+
+                        {/* Render Bounding Boxes */}
+                        {showBoundingBoxes &&
+                          selectedObs.aiResult?.evidence
+                            ?.filter((e) => e.imageRegion)
+                            .map((ev, i) => {
+                              const r = ev.imageRegion!;
+                              const isTurbidity = ev.indicator === 'turbidity';
+                              return (
+                                <div
+                                  key={i}
+                                  style={{
+                                    position: 'absolute',
+                                    left: `${r.x * 100}%`,
+                                    top: `${r.y * 100}%`,
+                                    width: `${r.w * 100}%`,
+                                    height: `${r.h * 100}%`,
+                                    border: isTurbidity ? '2px dashed #f59e0b' : '2px solid #ef4444',
+                                    background: isTurbidity ? 'rgba(245, 158, 11, 0.2)' : 'rgba(239, 68, 68, 0.2)',
+                                    borderRadius: '4px',
+                                    boxShadow: '0 0 12px rgba(0, 0, 0, 0.6)',
+                                    pointerEvents: 'none',
+                                  }}
+                                >
+                                  <span
+                                    style={{
+                                      position: 'absolute',
+                                      top: '-20px',
+                                      left: '0',
+                                      background: isTurbidity ? '#f59e0b' : '#ef4444',
+                                      color: '#000',
+                                      padding: '1px 6px',
+                                      borderRadius: '2px',
+                                      fontSize: '10px',
+                                      fontWeight: 700,
+                                      whiteSpace: 'nowrap',
+                                    }}
+                                  >
+                                    {r.label || ev.indicator} ({(ev.confidence * 100).toFixed(0)}%)
+                                  </span>
+                                </div>
+                              );
+                            })}
+                      </>
+                    );
+                  })()}
                 </div>
 
                 {/* AI Detected Evidence Badges */}

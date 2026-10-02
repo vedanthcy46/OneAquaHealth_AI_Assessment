@@ -51,10 +51,10 @@ export class OfflineStorageService {
     }
   }
 
-  // Bridging the mock frontend to the real backend!
+  // Bridging the frontend observation to the real backend and media storage!
   private static async syncToBackend(obs: Observation) {
     try {
-      // 1. Authenticate as a citizen using hardcoded seed credentials
+      // 1. Authenticate as a citizen using seed credentials
       const authRes = await fetch('http://localhost:3001/auth/login', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -64,15 +64,30 @@ export class OfflineStorageService {
       if (!authData.success) return;
       const token = authData.data.token;
 
-      // 2. Submit the observation to the real DB
-      await fetch('http://localhost:3001/observations', {
+      // 2. Resolve valid site UUID for DB foreign key
+      let targetSiteId = obs.siteId;
+      const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+      if (!targetSiteId || !uuidRegex.test(targetSiteId)) {
+        try {
+          const sitesRes = await fetch('http://localhost:3001/sites?limit=1');
+          const sitesData = await sitesRes.json();
+          if (sitesData.success && sitesData.data?.items?.length > 0) {
+            targetSiteId = sitesData.data.items[0].id;
+          }
+        } catch {
+          // fallback
+        }
+      }
+
+      // 3. Submit the observation to the real DB
+      const createRes = await fetch('http://localhost:3001/observations', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
           'Authorization': `Bearer ${token}`
         },
         body: JSON.stringify({
-          siteId: obs.siteId || 'some-site-id',
+          siteId: targetSiteId,
           localId: obs.id,
           gps: {
             lat: obs.gps?.lat || 0,
@@ -83,6 +98,64 @@ export class OfflineStorageService {
           envObservations: obs.envObservations
         })
       });
+
+      const createData = await createRes.json();
+      const serverObsId = createData?.data?.id || obs.id;
+
+      // 4. Upload and persist all photos and video to backend storage
+      if (obs.media && obs.media.length > 0) {
+        let mediaChanged = false;
+        for (const m of obs.media) {
+          if (!m.url) continue;
+          try {
+            let dataUrl = m.url;
+            // If blob URL, convert to base64 data URL
+            if (dataUrl.startsWith('blob:')) {
+              const bRes = await fetch(dataUrl);
+              const blob = await bRes.blob();
+              dataUrl = await new Promise<string>((resolve) => {
+                const reader = new FileReader();
+                reader.onloadend = () => resolve(reader.result as string);
+                reader.readAsDataURL(blob);
+              });
+            }
+
+            // Upload to backend media storage
+            if (dataUrl.startsWith('data:') || dataUrl.startsWith('http')) {
+              const upRes = await fetch(`http://localhost:3001/observations/${serverObsId}/media/upload`, {
+                method: 'POST',
+                headers: {
+                  'Content-Type': 'application/json',
+                  'Authorization': `Bearer ${token}`
+                },
+                body: JSON.stringify({
+                  dataUrl,
+                  mimeType: m.mimeType || 'image/jpeg',
+                  qualityScore: m.qualityScore || 90,
+                  qualityFactors: m.qualityFactors || {}
+                })
+              });
+              const upData = await upRes.json();
+              if (upData.success && upData.data?.url) {
+                m.url = upData.data.url;
+                mediaChanged = true;
+              }
+            }
+          } catch (mErr) {
+            console.warn('Could not sync media item to backend storage', mErr);
+          }
+        }
+
+        // 5. Update local storage with the permanent server URLs
+        if (mediaChanged) {
+          const list = this.getObservations();
+          const idx = list.findIndex((o) => o.id === obs.id);
+          if (idx >= 0) {
+            list[idx] = { ...obs };
+            localStorage.setItem(STORAGE_KEY, JSON.stringify(list));
+          }
+        }
+      }
     } catch (err) {
       console.error('Failed to sync to real backend', err);
     }

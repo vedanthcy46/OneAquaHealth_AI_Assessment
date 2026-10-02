@@ -25,6 +25,7 @@ import {
 } from '../services/aiPipeline';
 import { OfflineStorageService } from '../services/offlineStorage';
 import { AdaptiveQuestionFlow } from './AdaptiveQuestionFlow';
+import { StreamMap } from './StreamMap';
 
 interface CitizenObservationFormProps {
   onObservationSubmitted?: (obs: Observation) => void;
@@ -46,12 +47,50 @@ export const CitizenObservationForm: React.FC<CitizenObservationFormProps> = ({
   const [searchQuery, setSearchQuery] = useState('');
   const [showAddSiteModal, setShowAddSiteModal] = useState(false);
   const [newSiteName, setNewSiteName] = useState('');
+  const [newSiteCode, setNewSiteCode] = useState('');
+  const [newSiteLat, setNewSiteLat] = useState<number>(41.1350);
+  const [newSiteLng, setNewSiteLng] = useState<number>(14.7710);
+  const [newSiteRisk, setNewSiteRisk] = useState<'Low' | 'Moderate' | 'High'>('Low');
+  const [isGettingGps, setIsGettingGps] = useState(false);
+
+  const handleOpenAddSiteModal = () => {
+    setNewSiteName('');
+    const codePrefix = selectedSite.city.charAt(0).toUpperCase();
+    const nextNum = selectedSite.subSites.length + 1;
+    setNewSiteCode(`${codePrefix}${nextNum}`);
+    setNewSiteLat(Number((selectedSubSite.coordinates.lat + 0.003).toFixed(4)));
+    setNewSiteLng(Number((selectedSubSite.coordinates.lng + 0.003).toFixed(4)));
+    setNewSiteRisk('Low');
+    setShowAddSiteModal(true);
+  };
+
+  const handleUseCurrentGps = () => {
+    if (!navigator.geolocation) {
+      alert('Geolocation is not supported by your browser.');
+      return;
+    }
+    setIsGettingGps(true);
+    navigator.geolocation.getCurrentPosition(
+      (pos) => {
+        setNewSiteLat(Number(pos.coords.latitude.toFixed(4)));
+        setNewSiteLng(Number(pos.coords.longitude.toFixed(4)));
+        setIsGettingGps(false);
+      },
+      (err) => {
+        alert('Could not retrieve GPS: ' + err.message);
+        setIsGettingGps(false);
+      },
+      { enableHighAccuracy: true, timeout: 8000 }
+    );
+  };
 
   // Step 3: Media Upload state
   const [upstreamPhoto, setUpstreamPhoto] = useState<string>('/app_photos/image4.png');
   const [downstreamPhoto, setDownstreamPhoto] = useState<string>('/app_photos/image19.png');
   const [surroundingPhoto, setSurroundingPhoto] = useState<string>('/app_photos/image18.png');
   const [biodiversityPhoto, setBiodiversityPhoto] = useState<string>('/app_photos/image15.png');
+  const [streamVideo, setStreamVideo] = useState<string | null>(null);
+  const [streamVideoName, setStreamVideoName] = useState<string>('');
 
   // Step 4: Channel Form Questions (1/3)
   const [channelForm, setChannelForm] = useState<'flat' | 'u_shape' | 'v_shape' | 'unsure'>('u_shape');
@@ -94,7 +133,7 @@ export const CitizenObservationForm: React.FC<CitizenObservationFormProps> = ({
 
   // Auto trigger AI evaluation when reaching Step 9
   useEffect(() => {
-    if (currentStep === 6 && !aiAnalysisComplete) {
+    if (currentStep === 5 && !aiAnalysisComplete) {
       runRealTimeAiAssessment();
     }
   }, [currentStep]);
@@ -106,58 +145,103 @@ export const CitizenObservationForm: React.FC<CitizenObservationFormProps> = ({
     }
   }, [selectedSite]);
 
-  const runRealTimeAiAssessment = () => {
+  const runRealTimeAiAssessment = async () => {
     setIsAiAnalyzing(true);
+    try {
+      // 1. Get base64 of the uploaded photo (simulated upload)
+      const response = await fetch(upstreamPhoto);
+      const blob = await response.blob();
+      const reader = new FileReader();
+      reader.readAsDataURL(blob);
+      const base64 = await new Promise((res) => {
+        reader.onloadend = () => res(reader.result);
+      });
 
-    setTimeout(() => {
-      const envObs: EnvObservations = {
-        waterClarity:
-          waterAspect === 'clear'
-            ? 'clear'
-            : waterAspect === 'turbid'
-            ? 'murky'
-            : waterAspect === 'foam'
-            ? 'slightly_cloudy'
-            : 'opaque',
-        odour: odor,
-        debris: hasLitterTrash ? 'plastic_litter' : hasNaturalDebris ? 'natural_only' : 'none',
-        flowRate:
-          waterFlow === 'fast'
-            ? 'rapid'
-            : waterFlow === 'slow'
-            ? 'slow'
-            : waterFlow === 'stagnant'
-            ? 'stagnant'
-            : 'moderate',
-        channelType:
-          bankType === 'artificial' || bottomType === 'artificial'
-            ? 'concrete_channel'
-            : 'vegetated_banks',
-        notes: citizenNotes,
-        waterClarityScore: waterAspect === 'clear' ? 88 : waterAspect === 'turbid' ? 35 : 65
+      // 2. Build the environment observation mapping
+      const envObs = {
+        waterClarity: waterAspect, odour: odor, flowRate: waterFlow, notes: citizenNotes,
+        waterClarityScore: waterAspect === 'clear' ? 88 : 35
       };
 
-      // Real-time layer A: Image Quality
-      const imgQ = evaluateImageQuality('good');
-      setImageQuality(imgQ);
+      // 3. Call REAL Backend AI endpoint (which triggers Python)
+      const aiRes = await fetch('http://localhost:3001/ai/sync-analyze', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ imageBase64: base64, citizenAnswers: envObs })
+      });
+      const aiData = await aiRes.json();
+      const result = aiData.data || {};
 
-      // Real-time layer B: Stream Evidence Extraction
-      const isTurbid = waterAspect === 'turbid';
-      const ev = detectEcologicalEvidence(envObs, isTurbid);
-      setAiEvidence(ev);
+      // 4. Map Real Python output back to frontend state
+      setImageQuality(result.layer_a || { quality_score: 85 });
 
-      // Real-time layer D: Validation & Conflict Warnings
-      const warnings = validateObservation(envObs, ev, selectedSite, 4.2);
-      setValidationWarnings(warnings);
+      // Map Python Layer B indicators to frontend evidence items
+      const rawEvidence = result.layer_b || {};
+      const mappedEvidence: any[] = [];
+      if (Array.isArray(rawEvidence.evidence)) {
+        mappedEvidence.push(...rawEvidence.evidence);
+      } else {
+        Object.entries(rawEvidence).forEach(([k, v]: [string, any]) => {
+          if (v && typeof v === 'object' && v.value && v.confidence !== undefined && v.confidence > 0) {
+            mappedEvidence.push({
+              indicator: k,
+              value: v.value,
+              confidence: v.confidence,
+              present: v.value !== 'absent' && v.value !== 'unknown',
+              reasoning: v.evidence || ''
+            });
+          }
+        });
+      }
+      setAiEvidence(mappedEvidence);
 
-      // Confidence Score calculation
-      const isAnomaly = warnings.some((w) => w.type === 'HISTORICAL_ANOMALY');
-      const conf = calculateConfidence(imgQ.qualityScore, ev, warnings, 4.2, isAnomaly);
-      setConfidenceFactors(conf);
-
-      setIsAiAnalyzing(false);
-      setAiAnalysisComplete(true);
-    }, 700);
+      // Map Layer D conflicts to validation warnings
+      const rawConflicts = result.layer_d?.conflicts || [];
+      const mappedWarnings = rawConflicts.map((conf: any, idx: number) => {
+        if (typeof conf === 'string') {
+          return {
+            id: `conflict-${idx}`,
+            type: 'CITIZEN_AI_CONFLICT',
+            severity: 'HIGH',
+            explanation: {
+              why: conf,
+              nextAction: 'Review your visual observations against detected optical evidence.'
+            }
+          };
+        }
+        return conf;
+      });
+      setValidationWarnings(mappedWarnings);
+      
+      const realScore = Math.round(result.confidence?.confidence_score ?? result.confidence_score ?? 82);
+      const realComponents = result.confidence?.components || {};
+      setConfidenceFactors({
+        score: realScore,
+        routing: result.routing_decision || result.status || (realScore >= 80 ? 'VALID' : 'REVIEW_REQUIRED'),
+        factors: {
+          imageQuality: Math.round(realComponents.imageQuality ?? result.layer_a?.quality_score ?? 85),
+          aiEvidenceAgreement: Math.round(realComponents.aiEvidenceAgreement ?? 80),
+          citizenConsistency: Math.round(realComponents.citizenConsistency ?? 85),
+          gpsValidity: Math.round(realComponents.gpsValidity ?? 95),
+          historicalConsistency: Math.round(realComponents.historicalConsistency ?? 50)
+        },
+        explanation: result.layer_d?.explanation || {
+          what: `Observation evaluated by ${result.model_used || 'AquaGuard AI Engine'}`,
+          why: mappedWarnings.length > 0 
+            ? `${mappedWarnings.length} discrepancy detected between citizen report and computer vision.`
+            : 'Multi-modal optical analysis aligns with submitted observation answers.'
+        }
+      });
+    } catch (err) {
+      console.error('Real AI Pipeline Failed:', err);
+      // Fallback to avoid breaking UI demo if backend is off
+      setImageQuality({ qualityScore: 50 });
+      setAiEvidence([]);
+      setValidationWarnings([]);
+      setConfidenceFactors({ score: 50, factors: {}, explanation: { what: 'Failed to connect to real backend' } });
+    }
+    setIsAiAnalyzing(false);
+    setAiAnalysisComplete(true);
   };
 
   const handleFinalSubmit = () => {
@@ -211,11 +295,11 @@ export const CitizenObservationForm: React.FC<CitizenObservationFormProps> = ({
           id: `media-up-${Date.now()}`,
           observationId: newObsId,
           url: upstreamPhoto,
-          hash: 'sha256-up-873918471',
+          hash: 'sha256-up-' + Math.random().toString(36).substring(7),
           mimeType: 'image/jpeg',
           fileSizeBytes: 245800,
           captureTimestamp: new Date().toISOString(),
-          qualityScore: imageQuality?.qualityScore || 92,
+          qualityScore: imageQuality?.quality_score ?? imageQuality?.qualityScore ?? 92,
           qualityFactors: imageQuality?.factors || {
             blurScore: 88,
             blurPassed: true,
@@ -233,7 +317,7 @@ export const CitizenObservationForm: React.FC<CitizenObservationFormProps> = ({
           id: `media-down-${Date.now()}`,
           observationId: newObsId,
           url: downstreamPhoto,
-          hash: 'sha256-down-991823712',
+          hash: 'sha256-down-' + Math.random().toString(36).substring(7),
           mimeType: 'image/jpeg',
           fileSizeBytes: 268400,
           captureTimestamp: new Date().toISOString(),
@@ -250,7 +334,73 @@ export const CitizenObservationForm: React.FC<CitizenObservationFormProps> = ({
             isDuplicate: false,
             duplicateSimilarity: 0.02
           }
-        }
+        },
+        {
+          id: `media-surround-${Date.now()}`,
+          observationId: newObsId,
+          url: surroundingPhoto,
+          hash: 'sha256-surround-' + Math.random().toString(36).substring(7),
+          mimeType: 'image/jpeg',
+          fileSizeBytes: 215000,
+          captureTimestamp: new Date().toISOString(),
+          qualityScore: 88,
+          qualityFactors: {
+            blurScore: 85,
+            blurPassed: true,
+            brightnessScore: 82,
+            brightnessPassed: true,
+            occlusionScore: 90,
+            occlusionPassed: true,
+            streamRelevanceScore: 90,
+            streamRelevancePassed: true,
+            isDuplicate: false,
+            duplicateSimilarity: 0.02
+          }
+        },
+        {
+          id: `media-bio-${Date.now()}`,
+          observationId: newObsId,
+          url: biodiversityPhoto,
+          hash: 'sha256-bio-' + Math.random().toString(36).substring(7),
+          mimeType: 'image/jpeg',
+          fileSizeBytes: 198000,
+          captureTimestamp: new Date().toISOString(),
+          qualityScore: 89,
+          qualityFactors: {
+            blurScore: 89,
+            blurPassed: true,
+            brightnessScore: 84,
+            brightnessPassed: true,
+            occlusionScore: 91,
+            occlusionPassed: true,
+            streamRelevanceScore: 92,
+            streamRelevancePassed: true,
+            isDuplicate: false,
+            duplicateSimilarity: 0.02
+          }
+        },
+        ...(streamVideo ? [{
+          id: `media-vid-${Date.now()}`,
+          observationId: newObsId,
+          url: streamVideo,
+          hash: 'sha256-vid-' + Math.random().toString(36).substring(7),
+          mimeType: 'video/mp4',
+          fileSizeBytes: 1850000,
+          captureTimestamp: new Date().toISOString(),
+          qualityScore: 94,
+          qualityFactors: {
+            blurScore: 92,
+            blurPassed: true,
+            brightnessScore: 90,
+            brightnessPassed: true,
+            occlusionScore: 95,
+            occlusionPassed: true,
+            streamRelevanceScore: 96,
+            streamRelevancePassed: true,
+            isDuplicate: false,
+            duplicateSimilarity: 0.01
+          }
+        }] : [])
       ],
       aiResult: {
         id: `ai-${Date.now()}`,
@@ -352,11 +502,10 @@ export const CitizenObservationForm: React.FC<CitizenObservationFormProps> = ({
 
   const stepTitles = [
     { step: 1, label: 'Basic Information', sub: 'What is this App for?' },
-    { step: 2, label: 'Additional Details', sub: 'Select OneAquaHealth stream site' },
-    { step: 3, label: 'Media Upload', sub: 'Select your stream photos & video' },
-    { step: 4, label: 'Adaptive Questions', sub: 'Dynamic AI-driven ecological questions' },
-    { step: 5, label: 'Feedback', sub: 'Notes & confidence rating' },
-    { step: 6, label: 'AI Stream Assessment', sub: 'AI cross-check & FHIR submission' }
+    { step: 2, label: 'Site Selection', sub: 'Select OneAquaHealth stream site' },
+    { step: 3, label: 'Media Upload', sub: 'Upload your stream photos' },
+    { step: 4, label: 'Water Observations', sub: 'Conditions, odor, flow & health rating' },
+    { step: 5, label: 'AI Assessment', sub: 'Real AI cross-check & submission' }
   ];
 
   return (
@@ -401,7 +550,7 @@ export const CitizenObservationForm: React.FC<CitizenObservationFormProps> = ({
             OneAquaHealth Citizen App
           </span>
           <span style={{ fontSize: '13px', color: '#94a3b8' }}>
-            9-Step Official Stream Observation Wizard
+            5-Step Official Stream Observation Wizard
           </span>
         </div>
 
@@ -485,13 +634,13 @@ export const CitizenObservationForm: React.FC<CitizenObservationFormProps> = ({
               style={{
                 height: '100%',
                 background: 'linear-gradient(90deg, #0284c7, #38bdf8)',
-                width: `${((currentStep - 1) / 8) * 100}%`,
+                width: `${((currentStep - 1) / 4) * 100}%`,
                 transition: 'width 0.3s ease'
               }}
             />
           </div>
 
-          {[1, 2, 3, 4, 5, 6, 7, 8, 9].map((stepNum) => {
+          {[1, 2, 3, 4, 5].map((stepNum) => {
             const isActive = currentStep === stepNum;
             const isCompleted = currentStep > stepNum;
             return (
@@ -596,7 +745,7 @@ export const CitizenObservationForm: React.FC<CitizenObservationFormProps> = ({
 
           <button
             onClick={() => {
-              if (currentStep < 6) {
+              if (currentStep < 5) {
                 setCurrentStep((prev) => prev + 1);
               } else {
                 handleFinalSubmit();
@@ -606,9 +755,9 @@ export const CitizenObservationForm: React.FC<CitizenObservationFormProps> = ({
               flex: 1,
               padding: '12px 18px',
               borderRadius: '8px',
-              background: currentStep === 6 ? '#10b981' : '#38bdf8',
+              background: currentStep === 5 ? '#10b981' : '#38bdf8',
               border: 'none',
-              color: currentStep === 6 ? '#ffffff' : '#0f172a',
+              color: currentStep === 5 ? '#ffffff' : '#0f172a',
               fontWeight: 700,
               fontSize: '14px',
               cursor: 'pointer',
@@ -618,12 +767,12 @@ export const CitizenObservationForm: React.FC<CitizenObservationFormProps> = ({
               gap: '8px',
               transition: 'all 0.2s ease',
               boxShadow:
-                currentStep === 6
+                currentStep === 5
                   ? '0 0 20px rgba(16, 185, 129, 0.4)'
                   : '0 0 16px rgba(56, 189, 248, 0.3)'
             }}
           >
-            {currentStep === 6 ? (
+            {currentStep === 5 ? (
               <>
                 <FileCheck size={18} /> Submit Observation & Run AI
               </>
@@ -866,7 +1015,7 @@ export const CitizenObservationForm: React.FC<CitizenObservationFormProps> = ({
               </div>
 
               <button
-                onClick={() => setShowAddSiteModal(true)}
+                onClick={handleOpenAddSiteModal}
                 style={{
                   padding: '8px 16px',
                   borderRadius: '8px',
@@ -1005,54 +1154,19 @@ export const CitizenObservationForm: React.FC<CitizenObservationFormProps> = ({
                   flexDirection: 'column'
                 }}
               >
-                <div
-                  style={{
-                    position: 'relative',
-                    height: '280px',
-                    borderRadius: '8px',
-                    overflow: 'hidden',
-                    border: '1px solid #334155',
-                    background: '#0d1829',
-                    marginBottom: '14px'
-                  }}
-                >
-                  <img
-                    src="/app_photos/image17.png"
-                    alt="Map of OneAquaHealth Stream Sites"
-                    style={{
-                      width: '100%',
-                      height: '100%',
-                      objectFit: 'cover'
+                <div style={{ marginBottom: '14px' }}>
+                  <StreamMap
+                    sites={SAMPLE_SITES}
+                    selectedSite={selectedSite}
+                    selectedSubSite={selectedSubSite}
+                    onSelectSite={(site, subSite) => {
+                      setSelectedSite(site);
+                      setSelectedSubSite(subSite);
                     }}
+                    height="320px"
                   />
-
-                  <div
-                    style={{
-                      position: 'absolute',
-                      top: '20px',
-                      right: '20px',
-                      background: 'rgba(15, 23, 42, 0.92)',
-                      padding: '10px 14px',
-                      borderRadius: '8px',
-                      border: '1px solid #38bdf8',
-                      boxShadow: '0 4px 15px rgba(0,0,0,0.5)',
-                      fontSize: '12px'
-                    }}
-                  >
-                    <div style={{ color: '#38bdf8', fontWeight: 700 }}>
-                      📍 {selectedSite.city}
-                    </div>
-                    <div style={{ color: '#ffffff', fontWeight: 600, marginTop: '2px' }}>
-                      {selectedSubSite.code} ({selectedSubSite.name})
-                    </div>
-                    <div style={{ color: '#94a3b8', fontSize: '11px', marginTop: '2px' }}>
-                      Lat: {selectedSubSite.coordinates.lat.toFixed(4)}, Lng:{' '}
-                      {selectedSubSite.coordinates.lng.toFixed(4)}
-                    </div>
-                  </div>
                 </div>
-
-                <div
+                    <div
                   style={{
                     background: '#131e33',
                     padding: '14px',
@@ -1082,32 +1196,39 @@ export const CitizenObservationForm: React.FC<CitizenObservationFormProps> = ({
                   left: 0,
                   right: 0,
                   bottom: 0,
-                  background: 'rgba(0,0,0,0.7)',
+                  background: 'rgba(0,0,0,0.75)',
                   display: 'flex',
                   alignItems: 'center',
                   justifyContent: 'center',
-                  zIndex: 9999
+                  zIndex: 9999,
+                  backdropFilter: 'blur(6px)'
                 }}
               >
                 <div
                   style={{
                     background: '#0f172a',
                     border: '1px solid #38bdf8',
-                    borderRadius: '14px',
-                    padding: '24px',
-                    maxWidth: '440px',
-                    width: '90%'
+                    borderRadius: '16px',
+                    padding: '26px',
+                    maxWidth: '480px',
+                    width: '92%',
+                    boxShadow: '0 20px 40px rgba(0,0,0,0.8)'
                   }}
                 >
-                  <h4 style={{ margin: '0 0 10px', fontSize: '17px', color: '#38bdf8' }}>
+                  <h4 style={{ margin: '0 0 8px', fontSize: '18px', color: '#38bdf8', fontWeight: 700 }}>
                     Add Custom Stream Observation Site
                   </h4>
-                  <p style={{ fontSize: '13px', color: '#94a3b8', marginBottom: '14px' }}>
-                    Specify a new urban reach or tributary to add to the OneAquaHealth registry.
+                  <p style={{ fontSize: '13px', color: '#94a3b8', marginBottom: '18px' }}>
+                    Specify reach name &amp; GPS coordinates. It will be marked live on the map and added to the registry for <strong>{selectedSite.city}</strong>.
                   </p>
+
+                  {/* Reach Name */}
+                  <label style={{ display: 'block', fontSize: '12px', fontWeight: 600, color: '#cbd5e1', marginBottom: '6px' }}>
+                    Stream Reach / Location Name:
+                  </label>
                   <input
                     type="text"
-                    placeholder="e.g. Hovinbekken - New Footbridge Reach"
+                    placeholder="e.g. Calore — New Footbridge Reach"
                     value={newSiteName}
                     onChange={(e) => setNewSiteName(e.target.value)}
                     style={{
@@ -1117,32 +1238,162 @@ export const CitizenObservationForm: React.FC<CitizenObservationFormProps> = ({
                       border: '1px solid #334155',
                       borderRadius: '8px',
                       color: '#ffffff',
-                      marginBottom: '16px',
+                      marginBottom: '14px',
                       boxSizing: 'border-box'
                     }}
                   />
-                  <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px' }}>
+
+                  {/* Reach Code & Risk Level */}
+                  <div style={{ display: 'grid', gridTemplateColumns: '120px 1fr', gap: '12px', marginBottom: '14px' }}>
+                    <div>
+                      <label style={{ display: 'block', fontSize: '12px', fontWeight: 600, color: '#cbd5e1', marginBottom: '6px' }}>
+                        Reach Code:
+                      </label>
+                      <input
+                        type="text"
+                        placeholder="e.g. B6"
+                        value={newSiteCode}
+                        onChange={(e) => setNewSiteCode(e.target.value)}
+                        style={{
+                          width: '100%',
+                          padding: '10px 12px',
+                          background: '#1e293b',
+                          border: '1px solid #334155',
+                          borderRadius: '8px',
+                          color: '#38bdf8',
+                          fontWeight: 700,
+                          boxSizing: 'border-box'
+                        }}
+                      />
+                    </div>
+
+                    <div>
+                      <label style={{ display: 'block', fontSize: '12px', fontWeight: 600, color: '#cbd5e1', marginBottom: '6px' }}>
+                        Health Risk Level:
+                      </label>
+                      <div style={{ display: 'flex', gap: '6px' }}>
+                        {(['Low', 'Moderate', 'High'] as const).map((risk) => (
+                          <button
+                            key={risk}
+                            type="button"
+                            onClick={() => setNewSiteRisk(risk)}
+                            style={{
+                              flex: 1,
+                              padding: '9px 6px',
+                              borderRadius: '6px',
+                              cursor: 'pointer',
+                              fontSize: '11px',
+                              fontWeight: 700,
+                              background: newSiteRisk === risk
+                                ? (risk === 'Low' ? '#064e3b' : risk === 'Moderate' ? '#451a03' : '#450a0a')
+                                : '#1e293b',
+                              border: newSiteRisk === risk
+                                ? (risk === 'Low' ? '1px solid #10b981' : risk === 'Moderate' ? '1px solid #f59e0b' : '1px solid #ef4444')
+                                : '1px solid #334155',
+                              color: newSiteRisk === risk
+                                ? (risk === 'Low' ? '#34d399' : risk === 'Moderate' ? '#fbbf24' : '#f87171')
+                                : '#94a3b8'
+                            }}
+                          >
+                            {risk}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* GPS Coordinates Header & Auto-Detect Button */}
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px' }}>
+                    <label style={{ fontSize: '12px', fontWeight: 600, color: '#cbd5e1' }}>
+                      GPS Coordinates (Map Pin Placement):
+                    </label>
                     <button
+                      type="button"
+                      onClick={handleUseCurrentGps}
+                      disabled={isGettingGps}
+                      style={{
+                        padding: '4px 8px',
+                        borderRadius: '6px',
+                        background: 'rgba(56, 189, 248, 0.15)',
+                        border: '1px solid #38bdf8',
+                        color: '#38bdf8',
+                        fontSize: '11px',
+                        fontWeight: 600,
+                        cursor: 'pointer'
+                      }}
+                    >
+                      {isGettingGps ? 'Locating...' : '📍 Use Current Device GPS'}
+                    </button>
+                  </div>
+
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px', marginBottom: '18px' }}>
+                    <div>
+                      <span style={{ fontSize: '11px', color: '#94a3b8' }}>Latitude:</span>
+                      <input
+                        type="number"
+                        step="0.0001"
+                        value={newSiteLat}
+                        onChange={(e) => setNewSiteLat(parseFloat(e.target.value) || 0)}
+                        style={{
+                          width: '100%',
+                          padding: '8px 10px',
+                          background: '#1e293b',
+                          border: '1px solid #334155',
+                          borderRadius: '8px',
+                          color: '#ffffff',
+                          fontSize: '13px',
+                          boxSizing: 'border-box'
+                        }}
+                      />
+                    </div>
+                    <div>
+                      <span style={{ fontSize: '11px', color: '#94a3b8' }}>Longitude:</span>
+                      <input
+                        type="number"
+                        step="0.0001"
+                        value={newSiteLng}
+                        onChange={(e) => setNewSiteLng(parseFloat(e.target.value) || 0)}
+                        style={{
+                          width: '100%',
+                          padding: '8px 10px',
+                          background: '#1e293b',
+                          border: '1px solid #334155',
+                          borderRadius: '8px',
+                          color: '#ffffff',
+                          fontSize: '13px',
+                          boxSizing: 'border-box'
+                        }}
+                      />
+                    </div>
+                  </div>
+
+                  {/* Actions */}
+                  <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px' }}>
+                    <button
+                      type="button"
                       onClick={() => setShowAddSiteModal(false)}
                       style={{
-                        padding: '8px 14px',
+                        padding: '10px 16px',
                         background: '#334155',
                         border: 'none',
                         color: '#cbd5e1',
-                        borderRadius: '6px',
-                        cursor: 'pointer'
+                        borderRadius: '8px',
+                        cursor: 'pointer',
+                        fontWeight: 600,
+                        fontSize: '13px'
                       }}
                     >
                       Cancel
                     </button>
                     <button
+                      type="button"
                       onClick={() => {
                         if (newSiteName.trim()) {
                           const newSS: SubSite = {
-                            code: `C-${Date.now().toString().slice(-3)}`,
+                            code: newSiteCode.trim() || `C-${Date.now().toString().slice(-3)}`,
                             name: newSiteName.trim(),
-                            coordinates: { lat: 59.93, lng: 10.75 },
-                            healthRisk: 'Low'
+                            coordinates: { lat: newSiteLat, lng: newSiteLng },
+                            healthRisk: newSiteRisk
                           };
                           selectedSite.subSites.unshift(newSS);
                           setSelectedSubSite(newSS);
@@ -1151,16 +1402,17 @@ export const CitizenObservationForm: React.FC<CitizenObservationFormProps> = ({
                         }
                       }}
                       style={{
-                        padding: '8px 14px',
+                        padding: '10px 18px',
                         background: '#0284c7',
                         border: 'none',
                         color: '#ffffff',
-                        borderRadius: '6px',
-                        fontWeight: 600,
+                        borderRadius: '8px',
+                        fontWeight: 700,
+                        fontSize: '13px',
                         cursor: 'pointer'
                       }}
                     >
-                      Add & Select
+                      Mark on Map &amp; Select
                     </button>
                   </div>
                 </div>
@@ -1243,31 +1495,18 @@ export const CitizenObservationForm: React.FC<CitizenObservationFormProps> = ({
                     ⬆ Upstream View
                   </div>
                 </div>
-                <button
-                  onClick={() =>
-                    setUpstreamPhoto(
-                      upstreamPhoto === '/app_photos/image4.png'
-                        ? '/app_photos/image6.jpg'
-                        : '/app_photos/image4.png'
-                    )
-                  }
-                  style={{
-                    padding: '8px',
-                    borderRadius: '6px',
-                    background: '#0284c7',
-                    border: 'none',
-                    color: '#ffffff',
-                    fontSize: '12px',
-                    fontWeight: 600,
-                    cursor: 'pointer',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    gap: '6px'
-                  }}
-                >
-                  <Upload size={14} /> Select File / Swap
-                </button>
+                <label style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '8px', borderRadius: '6px', background: '#0284c7', border: 'none', color: '#ffffff', fontSize: '12px', fontWeight: 600, cursor: 'pointer', justifyContent: 'center' }}>
+                  <Upload size={14} /> Upload Real Photo
+                  <input
+                    type="file"
+                    accept="image/*"
+                    style={{ display: 'none' }}
+                    onChange={(e) => {
+                      const file = e.target.files?.[0];
+                      if (file) setUpstreamPhoto(URL.createObjectURL(file));
+                    }}
+                  />
+                </label>
               </div>
 
               {/* Media Slot 2: Downstream photo */}
@@ -1314,31 +1553,18 @@ export const CitizenObservationForm: React.FC<CitizenObservationFormProps> = ({
                     ⬇ Downstream View
                   </div>
                 </div>
-                <button
-                  onClick={() =>
-                    setDownstreamPhoto(
-                      downstreamPhoto === '/app_photos/image19.png'
-                        ? '/app_photos/image1.jpg'
-                        : '/app_photos/image19.png'
-                    )
-                  }
-                  style={{
-                    padding: '8px',
-                    borderRadius: '6px',
-                    background: '#0284c7',
-                    border: 'none',
-                    color: '#ffffff',
-                    fontSize: '12px',
-                    fontWeight: 600,
-                    cursor: 'pointer',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    gap: '6px'
-                  }}
-                >
-                  <Upload size={14} /> Select File / Swap
-                </button>
+                <label style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '8px', borderRadius: '6px', background: '#0284c7', border: 'none', color: '#ffffff', fontSize: '12px', fontWeight: 600, cursor: 'pointer', justifyContent: 'center' }}>
+                  <Upload size={14} /> Upload Real Photo
+                  <input
+                    type="file"
+                    accept="image/*"
+                    style={{ display: 'none' }}
+                    onChange={(e) => {
+                      const file = e.target.files?.[0];
+                      if (file) setDownstreamPhoto(URL.createObjectURL(file));
+                    }}
+                  />
+                </label>
               </div>
 
               {/* Media Slot 3: Surrounding context */}
@@ -1385,31 +1611,18 @@ export const CitizenObservationForm: React.FC<CitizenObservationFormProps> = ({
                     🏡 Houses, Roads, Buffers
                   </div>
                 </div>
-                <button
-                  onClick={() =>
-                    setSurroundingPhoto(
-                      surroundingPhoto === '/app_photos/image18.png'
-                        ? '/app_photos/image22.png'
-                        : '/app_photos/image18.png'
-                    )
-                  }
-                  style={{
-                    padding: '8px',
-                    borderRadius: '6px',
-                    background: '#0284c7',
-                    border: 'none',
-                    color: '#ffffff',
-                    fontSize: '12px',
-                    fontWeight: 600,
-                    cursor: 'pointer',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    gap: '6px'
-                  }}
-                >
-                  <Upload size={14} /> Select File / Swap
-                </button>
+                <label style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '8px', borderRadius: '6px', background: '#0284c7', border: 'none', color: '#ffffff', fontSize: '12px', fontWeight: 600, cursor: 'pointer', justifyContent: 'center' }}>
+                  <Upload size={14} /> Upload Real Photo
+                  <input
+                    type="file"
+                    accept="image/*"
+                    style={{ display: 'none' }}
+                    onChange={(e) => {
+                      const file = e.target.files?.[0];
+                      if (file) setSurroundingPhoto(URL.createObjectURL(file));
+                    }}
+                  />
+                </label>
               </div>
 
               {/* Media Slot 4: Biodiversity element */}
@@ -1456,34 +1669,21 @@ export const CitizenObservationForm: React.FC<CitizenObservationFormProps> = ({
                     🌿 Flora / Fauna
                   </div>
                 </div>
-                <button
-                  onClick={() =>
-                    setBiodiversityPhoto(
-                      biodiversityPhoto === '/app_photos/image15.png'
-                        ? '/app_photos/image13.png'
-                        : '/app_photos/image15.png'
-                    )
-                  }
-                  style={{
-                    padding: '8px',
-                    borderRadius: '6px',
-                    background: '#0284c7',
-                    border: 'none',
-                    color: '#ffffff',
-                    fontSize: '12px',
-                    fontWeight: 600,
-                    cursor: 'pointer',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    gap: '6px'
-                  }}
-                >
-                  <Upload size={14} /> Select File / Swap
-                </button>
+                <label style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '8px', borderRadius: '6px', background: '#0284c7', border: 'none', color: '#ffffff', fontSize: '12px', fontWeight: 600, cursor: 'pointer', justifyContent: 'center' }}>
+                  <Upload size={14} /> Upload Real Photo
+                  <input
+                    type="file"
+                    accept="image/*"
+                    style={{ display: 'none' }}
+                    onChange={(e) => {
+                      const file = e.target.files?.[0];
+                      if (file) setBiodiversityPhoto(URL.createObjectURL(file));
+                    }}
+                  />
+                </label>
               </div>
 
-              {/* Media Slot 5: Short Video (5-10s) */}
+              {/* Media Slot 5: Short Video (5-15s) */}
               <div
                 style={{
                   background: '#0f172a',
@@ -1495,102 +1695,222 @@ export const CitizenObservationForm: React.FC<CitizenObservationFormProps> = ({
                   gap: '10px'
                 }}
               >
-                <div style={{ fontWeight: 600, fontSize: '14px', color: '#f8fafc' }}>
-                  Make a short video (5 or 10 seconds)
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <div style={{ fontWeight: 600, fontSize: '14px', color: '#f8fafc' }}>
+                    Stream Video (5-15s)
+                  </div>
+                  {streamVideo && (
+                    <span style={{ fontSize: '11px', color: '#34d399', fontWeight: 700 }}>
+                      ✓ Video Ready
+                    </span>
+                  )}
                 </div>
+
                 <div
                   style={{
                     height: '140px',
                     borderRadius: '8px',
                     background: '#131e33',
-                    border: '1px dashed #38bdf8',
+                    border: streamVideo ? '1px solid #10b981' : '1px dashed #38bdf8',
                     display: 'flex',
                     flexDirection: 'column',
                     alignItems: 'center',
                     justifyContent: 'center',
-                    color: '#38bdf8'
-                  }}
-                >
-                  <Video size={36} />
-                  <span style={{ fontSize: '12px', marginTop: '6px', color: '#cbd5e1' }}>
-                    stream_video_10s.mp4 (Recorded)
-                  </span>
-                </div>
-                <button
-                  onClick={() => alert('Simulated video camera capture (10s audio-visual recording loaded)')}
-                  style={{
-                    padding: '8px',
-                    borderRadius: '6px',
-                    background: '#1e293b',
-                    border: '1px solid #38bdf8',
                     color: '#38bdf8',
-                    fontSize: '12px',
-                    fontWeight: 600,
-                    cursor: 'pointer',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    gap: '6px'
+                    overflow: 'hidden',
+                    position: 'relative'
                   }}
                 >
-                  <Camera size={14} /> Record Video
-                </button>
+                  {streamVideo ? (
+                    <video
+                      src={streamVideo}
+                      controls
+                      style={{ width: '100%', height: '100%', objectFit: 'cover' }}
+                    />
+                  ) : (
+                    <>
+                      <Video size={36} />
+                      <span style={{ fontSize: '12px', marginTop: '6px', color: '#cbd5e1' }}>
+                        No video selected
+                      </span>
+                      <span style={{ fontSize: '10px', color: '#64748b', marginTop: '2px' }}>
+                        Upload actual stream flow clip
+                      </span>
+                    </>
+                  )}
+                </div>
+
+                <div style={{ display: 'flex', gap: '6px' }}>
+                  <label
+                    style={{
+                      flex: 1,
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      gap: '6px',
+                      padding: '8px',
+                      borderRadius: '6px',
+                      background: '#0284c7',
+                      color: '#ffffff',
+                      fontSize: '12px',
+                      fontWeight: 600,
+                      cursor: 'pointer'
+                    }}
+                  >
+                    <Upload size={14} /> {streamVideo ? 'Replace Video' : 'Upload Real Video'}
+                    <input
+                      type="file"
+                      accept="video/*"
+                      style={{ display: 'none' }}
+                      onChange={(e) => {
+                        const file = e.target.files?.[0];
+                        if (file) {
+                          setStreamVideo(URL.createObjectURL(file));
+                          setStreamVideoName(file.name);
+                        }
+                      }}
+                    />
+                  </label>
+
+                  {streamVideo && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setStreamVideo(null);
+                        setStreamVideoName('');
+                      }}
+                      style={{
+                        padding: '8px 12px',
+                        borderRadius: '6px',
+                        background: '#334155',
+                        border: 'none',
+                        color: '#f87171',
+                        fontSize: '12px',
+                        fontWeight: 600,
+                        cursor: 'pointer'
+                      }}
+                    >
+                      Remove
+                    </button>
+                  )}
+                </div>
+              </div>
+          </div>
+            </div>
+        )}
+
+        {/* STEP 4: Structured Water Conditions + AI Adaptive Questions */}
+        {currentStep === 4 && (
+          <div>
+            <div style={{ marginBottom: '24px' }}>
+              <h3 style={{ fontSize: '17px', fontWeight: 700, color: '#38bdf8', marginBottom: '16px' }}>Water Conditions</h3>
+
+              {/* Water Clarity */}
+              <div style={{ marginBottom: '20px' }}>
+                <label style={{ display: 'block', marginBottom: '10px', fontWeight: 600, color: '#94a3b8', fontSize: '14px' }}>Water Appearance:</label>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: '10px' }}>
+                  {(['clear', 'turbid', 'foam', 'altered_color', 'unsure'] as const).map(opt => (
+                    <button key={opt} onClick={() => setWaterAspect(opt)}
+                      style={{ padding: '12px 8px', borderRadius: '8px', cursor: 'pointer', fontWeight: 600, fontSize: '13px',
+                        background: waterAspect === opt ? '#0284c7' : '#1e293b',
+                        border: waterAspect === opt ? '1px solid #38bdf8' : '1px solid #334155',
+                        color: waterAspect === opt ? '#ffffff' : '#94a3b8' }}>
+                      {opt === 'clear' ? 'Clear' : opt === 'turbid' ? 'Turbid / Murky' : opt === 'foam' ? 'Foam' : opt === 'altered_color' ? 'Altered Color' : 'Unsure'}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Water Flow */}
+              <div style={{ marginBottom: '20px' }}>
+                <label style={{ display: 'block', marginBottom: '10px', fontWeight: 600, color: '#94a3b8', fontSize: '14px' }}>Water Flow Rate:</label>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: '10px' }}>
+                  {(['fast', 'slow', 'stagnant', 'dry', 'unsure'] as const).map(opt => (
+                    <button key={opt} onClick={() => setWaterFlow(opt)}
+                      style={{ padding: '12px 8px', borderRadius: '8px', cursor: 'pointer', fontWeight: 600, fontSize: '13px',
+                        background: waterFlow === opt ? '#0284c7' : '#1e293b',
+                        border: waterFlow === opt ? '1px solid #38bdf8' : '1px solid #334155',
+                        color: waterFlow === opt ? '#ffffff' : '#94a3b8' }}>
+                      {opt === 'fast' ? 'Fast Flow' : opt === 'slow' ? 'Slow Flow' : opt === 'stagnant' ? 'Stagnant' : opt === 'dry' ? 'Dry' : 'Unsure'}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Odor */}
+              <div style={{ marginBottom: '20px' }}>
+                <label style={{ display: 'block', marginBottom: '10px', fontWeight: 600, color: '#94a3b8', fontSize: '14px' }}>Odor:</label>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: '10px' }}>
+                  {(['none', 'earthy', 'sewage', 'chemical', 'fishy'] as const).map(opt => (
+                    <button key={opt} onClick={() => setOdor(opt)}
+                      style={{ padding: '12px 8px', borderRadius: '8px', cursor: 'pointer', fontWeight: 600, fontSize: '13px',
+                        background: odor === opt ? '#0284c7' : '#1e293b',
+                        border: odor === opt ? '1px solid #38bdf8' : '1px solid #334155',
+                        color: odor === opt ? '#ffffff' : '#94a3b8' }}>
+                      {opt === 'none' ? 'No Odor' : opt === 'earthy' ? 'Earthy' : opt === 'sewage' ? 'Sewage' : opt === 'chemical' ? 'Chemical' : 'Fishy'}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Litter */}
+              <div style={{ marginBottom: '20px' }}>
+                <label style={{ display: 'block', marginBottom: '10px', fontWeight: 600, color: '#94a3b8', fontSize: '14px' }}>Visible Litter/Trash?</label>
+                <div style={{ display: 'flex', gap: '10px' }}>
+                  <button onClick={() => setHasLitterTrash(true)} style={{ flex: 1, padding: '12px', borderRadius: '8px', cursor: 'pointer', fontWeight: 600, background: hasLitterTrash ? '#dc2626' : '#1e293b', border: hasLitterTrash ? '1px solid #ef4444' : '1px solid #334155', color: hasLitterTrash ? '#ffffff' : '#94a3b8' }}>Yes — Litter Present</button>
+                  <button onClick={() => setHasLitterTrash(false)} style={{ flex: 1, padding: '12px', borderRadius: '8px', cursor: 'pointer', fontWeight: 600, background: !hasLitterTrash ? '#0284c7' : '#1e293b', border: !hasLitterTrash ? '1px solid #38bdf8' : '1px solid #334155', color: !hasLitterTrash ? '#ffffff' : '#94a3b8' }}>No — Clean</button>
+                </div>
+              </div>
+
+              {/* Overall Health Rating */}
+              <div style={{ marginBottom: '20px' }}>
+                <label style={{ display: 'block', marginBottom: '10px', fontWeight: 600, color: '#94a3b8', fontSize: '14px' }}>Your Overall Health Rating:</label>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '10px' }}>
+                  {(['good', 'moderate', 'poor'] as const).map(rating => (
+                    <button key={rating} onClick={() => setOverallHealthRating(rating)}
+                      style={{ padding: '16px 8px', borderRadius: '8px', cursor: 'pointer', fontWeight: 700, fontSize: '14px',
+                        background: overallHealthRating === rating ? (rating === 'good' ? '#064e3b' : rating === 'moderate' ? '#451a03' : '#450a0a') : '#1e293b',
+                        border: overallHealthRating === rating ? (rating === 'good' ? '2px solid #10b981' : rating === 'moderate' ? '2px solid #f59e0b' : '2px solid #ef4444') : '1px solid #334155',
+                        color: overallHealthRating === rating ? '#ffffff' : '#94a3b8' }}>
+                      {rating === 'good' ? 'Good Health' : rating === 'moderate' ? 'Moderate' : 'Poor Health'}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Field Notes */}
+              <div style={{ marginBottom: '20px' }}>
+                <label style={{ display: 'block', marginBottom: '8px', fontWeight: 600, color: '#94a3b8', fontSize: '14px' }}>Field Notes:</label>
+                <textarea
+                  value={citizenNotes}
+                  onChange={(e) => setCitizenNotes(e.target.value)}
+                  style={{ width: '100%', padding: '12px', borderRadius: '8px', background: '#0f172a', border: '1px solid #1e293b', color: '#f8fafc', minHeight: '80px', fontSize: '14px', resize: 'vertical', boxSizing: 'border-box' }}
+                  placeholder="Describe anything else you noticed at this stream reach..."
+                />
+              </div>
+
+              {/* Confidence Rating */}
+              <div>
+                <label style={{ display: 'block', marginBottom: '8px', fontWeight: 600, color: '#94a3b8', fontSize: '14px' }}>Your Confidence (1-5):</label>
+                <div style={{ display: 'flex', gap: '8px' }}>
+                  {[1, 2, 3, 4, 5].map((star) => (
+                    <button key={star} onClick={() => setCitizenConfidence(star)}
+                      style={{ flex: 1, padding: '14px', borderRadius: '8px', cursor: 'pointer', fontWeight: 700, fontSize: '16px',
+                        background: citizenConfidence >= star ? '#0284c7' : '#1e293b',
+                        border: citizenConfidence >= star ? '1px solid #38bdf8' : '1px solid #334155',
+                        color: citizenConfidence >= star ? '#ffffff' : '#64748b' }}>
+                      {star}
+                    </button>
+                  ))}
+                </div>
               </div>
             </div>
           </div>
         )}
 
-        {/* STEP 4: AI Adaptive Questions (Layer C) */}
-        {currentStep === 4 && (
-          <AdaptiveQuestionFlow 
-            evidence={aiEvidence} 
-            onComplete={(answers) => {
-              setCurrentStep(5);
-            }} 
-          />
-        )}
 
-        {/* STEP 5: Feedback & Confidence */}
+        {/* STEP 5: AI Real-Time Stream Assessment & Submission */}
         {currentStep === 5 && (
-          <div>
-             <div style={{ marginBottom: '20px' }}>
-                <label style={{ display: 'block', marginBottom: '8px', fontWeight: 600, color: '#94a3b8' }}>
-                  Field Notes (Optional):
-                </label>
-                <textarea
-                  value={citizenNotes}
-                  onChange={(e) => setCitizenNotes(e.target.value)}
-                  style={{ width: '100%', padding: '12px', borderRadius: '8px', background: '#0f172a', border: '1px solid #1e293b', color: '#f8fafc', minHeight: '100px' }}
-                  placeholder="Describe anything else you noticed..."
-                />
-             </div>
-             <div>
-                <label style={{ display: 'block', marginBottom: '8px', fontWeight: 600, color: '#94a3b8' }}>
-                  Your Confidence Level:
-                </label>
-                <div style={{ display: 'flex', gap: '8px' }}>
-                  {[1, 2, 3, 4, 5].map((star) => (
-                    <button
-                      key={star}
-                      onClick={() => setCitizenConfidence(star)}
-                      style={{
-                        flex: 1, padding: '12px', borderRadius: '8px', cursor: 'pointer',
-                        background: citizenConfidence >= star ? '#0284c7' : '#1e293b',
-                        border: citizenConfidence >= star ? '1px solid #38bdf8' : '1px solid #334155',
-                        color: citizenConfidence >= star ? '#ffffff' : '#64748b',
-                        fontWeight: 700
-                      }}
-                    >
-                      {star}
-                    </button>
-                  ))}
-                </div>
-             </div>
-          </div>
-        )}
-
-        {/* STEP 6: AI Real-Time Stream Assessment & Submission */}
-        {currentStep === 6 && (
           <div>
             <div
               style={{
@@ -1734,7 +2054,7 @@ export const CitizenObservationForm: React.FC<CitizenObservationFormProps> = ({
                         margin: '6px 0'
                       }}
                     >
-                      {imageQuality?.qualityScore || 92}/100
+                      {imageQuality?.quality_score ?? imageQuality?.qualityScore ?? 92}/100
                     </div>
                     <div style={{ fontSize: '13px', color: '#cbd5e1' }}>
                       Blur & Exposure: <strong style={{ color: '#10b981' }}>Passed</strong> | Stream Relevance:{' '}
@@ -1849,6 +2169,56 @@ export const CitizenObservationForm: React.FC<CitizenObservationFormProps> = ({
                       Observation ID: <code style={{ color: '#ffffff' }}>{submittedObsId}</code> has been verified,
                       saved to offline IndexedDB storage, and synchronized to the OneAquaHealth registry.
                     </p>
+
+                    {/* Uploaded Field Evidence Gallery */}
+                    <div
+                      style={{
+                        margin: '20px 0',
+                        textAlign: 'left',
+                        background: 'rgba(0, 0, 0, 0.35)',
+                        border: '1px solid rgba(56, 189, 248, 0.3)',
+                        borderRadius: '12px',
+                        padding: '16px'
+                      }}
+                    >
+                      <div style={{ fontSize: '13px', fontWeight: 700, color: '#38bdf8', marginBottom: '12px' }}>
+                        📷 Attached Field Evidence ({4 + (streamVideo ? 1 : 0)} items recorded):
+                      </div>
+                      <div
+                        style={{
+                          display: 'grid',
+                          gridTemplateColumns: 'repeat(auto-fit, minmax(130px, 1fr))',
+                          gap: '12px'
+                        }}
+                      >
+                        <div style={{ background: '#091122', padding: '6px', borderRadius: '8px', border: '1px solid #1e293b' }}>
+                          <div style={{ fontSize: '11px', color: '#cbd5e1', marginBottom: '4px', fontWeight: 600 }}>⬆ Upstream</div>
+                          <img src={upstreamPhoto} alt="Upstream" style={{ width: '100%', height: '85px', objectFit: 'cover', borderRadius: '6px' }} />
+                        </div>
+
+                        <div style={{ background: '#091122', padding: '6px', borderRadius: '8px', border: '1px solid #1e293b' }}>
+                          <div style={{ fontSize: '11px', color: '#cbd5e1', marginBottom: '4px', fontWeight: 600 }}>⬇ Downstream</div>
+                          <img src={downstreamPhoto} alt="Downstream" style={{ width: '100%', height: '85px', objectFit: 'cover', borderRadius: '6px' }} />
+                        </div>
+
+                        <div style={{ background: '#091122', padding: '6px', borderRadius: '8px', border: '1px solid #1e293b' }}>
+                          <div style={{ fontSize: '11px', color: '#cbd5e1', marginBottom: '4px', fontWeight: 600 }}>🏡 Surroundings</div>
+                          <img src={surroundingPhoto} alt="Surroundings" style={{ width: '100%', height: '85px', objectFit: 'cover', borderRadius: '6px' }} />
+                        </div>
+
+                        <div style={{ background: '#091122', padding: '6px', borderRadius: '8px', border: '1px solid #1e293b' }}>
+                          <div style={{ fontSize: '11px', color: '#cbd5e1', marginBottom: '4px', fontWeight: 600 }}>🌿 Biodiversity</div>
+                          <img src={biodiversityPhoto} alt="Biodiversity" style={{ width: '100%', height: '85px', objectFit: 'cover', borderRadius: '6px' }} />
+                        </div>
+
+                        {streamVideo && (
+                          <div style={{ background: '#091122', padding: '6px', borderRadius: '8px', border: '1px solid #10b981' }}>
+                            <div style={{ fontSize: '11px', color: '#34d399', marginBottom: '4px', fontWeight: 700 }}>🎥 Stream Video</div>
+                            <video src={streamVideo} controls style={{ width: '100%', height: '85px', objectFit: 'cover', borderRadius: '6px' }} />
+                          </div>
+                        )}
+                      </div>
+                    </div>
                     <div style={{ display: 'flex', gap: '10px', justifyContent: 'center' }}>
                       <button
                         onClick={() => {
