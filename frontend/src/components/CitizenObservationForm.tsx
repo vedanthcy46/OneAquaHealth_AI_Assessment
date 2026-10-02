@@ -24,6 +24,7 @@ import {
   calculateConfidence
 } from '../services/aiPipeline';
 import { OfflineStorageService } from '../services/offlineStorage';
+import { AdaptiveQuestionFlow } from './AdaptiveQuestionFlow';
 
 interface CitizenObservationFormProps {
   onObservationSubmitted?: (obs: Observation) => void;
@@ -93,7 +94,7 @@ export const CitizenObservationForm: React.FC<CitizenObservationFormProps> = ({
 
   // Auto trigger AI evaluation when reaching Step 9
   useEffect(() => {
-    if (currentStep === 9 && !aiAnalysisComplete) {
+    if (currentStep === 6 && !aiAnalysisComplete) {
       runRealTimeAiAssessment();
     }
   }, [currentStep]);
@@ -353,12 +354,9 @@ export const CitizenObservationForm: React.FC<CitizenObservationFormProps> = ({
     { step: 1, label: 'Basic Information', sub: 'What is this App for?' },
     { step: 2, label: 'Additional Details', sub: 'Select OneAquaHealth stream site' },
     { step: 3, label: 'Media Upload', sub: 'Select your stream photos & video' },
-    { step: 4, label: 'Questions (1/3)', sub: 'Channel form & riparian dimensions' },
-    { step: 5, label: 'Questions (2/3)', sub: 'Water aspect, flow, bed & banks' },
-    { step: 6, label: 'Questions (3/3)', sub: 'Surrounding pressures & artificial structures' },
-    { step: 7, label: 'Feedback (1/2)', sub: 'Overall stream ecosystem health rating' },
-    { step: 8, label: 'Feedback (2/2)', sub: 'Notes, weather & confidence rating' },
-    { step: 9, label: 'AI Stream Assessment', sub: 'AI cross-check & FHIR submission' }
+    { step: 4, label: 'Adaptive Questions', sub: 'Dynamic AI-driven ecological questions' },
+    { step: 5, label: 'Feedback', sub: 'Notes & confidence rating' },
+    { step: 6, label: 'AI Stream Assessment', sub: 'AI cross-check & FHIR submission' }
   ];
 
   return (
@@ -598,7 +596,7 @@ export const CitizenObservationForm: React.FC<CitizenObservationFormProps> = ({
 
           <button
             onClick={() => {
-              if (currentStep < 9) {
+              if (currentStep < 6) {
                 setCurrentStep((prev) => prev + 1);
               } else {
                 handleFinalSubmit();
@@ -608,9 +606,9 @@ export const CitizenObservationForm: React.FC<CitizenObservationFormProps> = ({
               flex: 1,
               padding: '12px 18px',
               borderRadius: '8px',
-              background: currentStep === 9 ? '#10b981' : '#38bdf8',
+              background: currentStep === 6 ? '#10b981' : '#38bdf8',
               border: 'none',
-              color: currentStep === 9 ? '#ffffff' : '#0f172a',
+              color: currentStep === 6 ? '#ffffff' : '#0f172a',
               fontWeight: 700,
               fontSize: '14px',
               cursor: 'pointer',
@@ -620,12 +618,12 @@ export const CitizenObservationForm: React.FC<CitizenObservationFormProps> = ({
               gap: '8px',
               transition: 'all 0.2s ease',
               boxShadow:
-                currentStep === 9
+                currentStep === 6
                   ? '0 0 20px rgba(16, 185, 129, 0.4)'
                   : '0 0 16px rgba(56, 189, 248, 0.3)'
             }}
           >
-            {currentStep === 9 ? (
+            {currentStep === 6 ? (
               <>
                 <FileCheck size={18} /> Submit Observation & Run AI
               </>
@@ -1542,934 +1540,57 @@ export const CitizenObservationForm: React.FC<CitizenObservationFormProps> = ({
           </div>
         )}
 
-        {/* STEP 4: Questions (1/3) - Channel Form & Dimensions */}
+        {/* STEP 4: AI Adaptive Questions (Layer C) */}
         {currentStep === 4 && (
-          <div>
-            <div
-              style={{
-                background: '#131e33',
-                padding: '12px 16px',
-                borderRadius: '8px',
-                color: '#38bdf8',
-                fontSize: '14px',
-                fontWeight: 600,
-                marginBottom: '20px'
-              }}
-            >
-              What do you see from where you stand (in ca. 100m)?
-            </div>
-
-            <div
-              style={{
-                background: '#0f172a',
-                border: '1px solid #1e293b',
-                borderRadius: '12px',
-                padding: '20px',
-                marginBottom: '24px'
-              }}
-            >
-              <h4 style={{ margin: '0 0 4px', fontSize: '16px', color: '#ffffff' }}>
-                Channel Form
-              </h4>
-              <p style={{ margin: '0 0 16px', fontSize: '13px', color: '#94a3b8' }}>
-                The channel form is...
-              </p>
-
-              <div
-                style={{
-                  display: 'grid',
-                  gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))',
-                  gap: '12px',
-                  marginBottom: '16px'
-                }}
-              >
-                {[
-                  { id: 'flat', label: 'Flat (A)' },
-                  { id: 'u_shape', label: 'U Shape (B)' },
-                  { id: 'v_shape', label: 'V Shape (C)' },
-                  { id: 'unsure', label: "I'm not sure" }
-                ].map((opt) => (
-                  <button
-                    key={opt.id}
-                    onClick={() => setChannelForm(opt.id as any)}
-                    style={{
-                      padding: '12px 16px',
-                      borderRadius: '8px',
-                      background: channelForm === opt.id ? '#0284c7' : '#131e33',
-                      border: channelForm === opt.id ? '2px solid #38bdf8' : '1px solid #334155',
-                      color: channelForm === opt.id ? '#ffffff' : '#cbd5e1',
-                      fontWeight: 600,
-                      fontSize: '14px',
-                      cursor: 'pointer',
-                      textAlign: 'left'
-                    }}
-                  >
-                    <input
-                      type="radio"
-                      checked={channelForm === opt.id}
-                      onChange={() => {}}
-                      style={{ marginRight: '8px' }}
-                    />
-                    {opt.label}
-                  </button>
-                ))}
-              </div>
-
-              <div
-                style={{
-                  borderRadius: '10px',
-                  overflow: 'hidden',
-                  border: '1px solid #334155',
-                  maxHeight: '180px'
-                }}
-              >
-                <img
-                  src="/app_photos/image23.png"
-                  alt="Channel Form Diagrams A, B, C"
-                  style={{ width: '100%', height: '180px', objectFit: 'cover' }}
-                />
-              </div>
-            </div>
-
-            <div
-              style={{
-                background: '#0f172a',
-                border: '1px solid #1e293b',
-                borderRadius: '12px',
-                padding: '20px'
-              }}
-            >
-              <h4 style={{ margin: '0 0 4px', fontSize: '16px', color: '#ffffff' }}>
-                Riparian Vegetation Width
-              </h4>
-              <p style={{ margin: '0 0 16px', fontSize: '13px', color: '#94a3b8' }}>
-                Estimated buffer width of native vegetation along the banks:
-              </p>
-
-              <div
-                style={{
-                  display: 'grid',
-                  gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))',
-                  gap: '20px'
-                }}
-              >
-                <div style={{ background: '#131e33', padding: '14px', borderRadius: '8px' }}>
-                  <div style={{ fontWeight: 600, color: '#38bdf8', marginBottom: '8px' }}>
-                    Left Bank Buffer:
-                  </div>
-                  <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
-                    {['<1m', '1-5m', '5-10m', '>10m'].map((w) => (
-                      <button
-                        key={w}
-                        onClick={() => setBufferLeftWidth(w as any)}
-                        style={{
-                          padding: '6px 12px',
-                          borderRadius: '6px',
-                          background: bufferLeftWidth === w ? '#0284c7' : '#1e293b',
-                          border: bufferLeftWidth === w ? '1px solid #38bdf8' : '1px solid #334155',
-                          color: '#ffffff',
-                          fontSize: '13px',
-                          cursor: 'pointer'
-                        }}
-                      >
-                        {w}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-
-                <div style={{ background: '#131e33', padding: '14px', borderRadius: '8px' }}>
-                  <div style={{ fontWeight: 600, color: '#38bdf8', marginBottom: '8px' }}>
-                    Right Bank Buffer:
-                  </div>
-                  <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
-                    {['<1m', '1-5m', '5-10m', '>10m'].map((w) => (
-                      <button
-                        key={w}
-                        onClick={() => setBufferRightWidth(w as any)}
-                        style={{
-                          padding: '6px 12px',
-                          borderRadius: '6px',
-                          background: bufferRightWidth === w ? '#0284c7' : '#1e293b',
-                          border: bufferRightWidth === w ? '1px solid #38bdf8' : '1px solid #334155',
-                          color: '#ffffff',
-                          fontSize: '13px',
-                          cursor: 'pointer'
-                        }}
-                      >
-                        {w}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-              </div>
-            </div>
-          </div>
+          <AdaptiveQuestionFlow 
+            evidence={aiEvidence} 
+            onComplete={(answers) => {
+              setCurrentStep(5);
+            }} 
+          />
         )}
 
-        {/* STEP 5: Questions (2/3) - Water Aspect, Flow, Bed & Habitats */}
+        {/* STEP 5: Feedback & Confidence */}
         {currentStep === 5 && (
           <div>
-            <div
-              style={{
-                background: '#131e33',
-                padding: '12px 16px',
-                borderRadius: '8px',
-                color: '#38bdf8',
-                fontSize: '14px',
-                fontWeight: 600,
-                marginBottom: '20px'
-              }}
-            >
-              What do you see from where you stand (in ca. 100m)?
-            </div>
-
-            <div
-              style={{
-                background: '#0f172a',
-                border: '1px solid #1e293b',
-                borderRadius: '12px',
-                padding: '20px',
-                marginBottom: '20px'
-              }}
-            >
-              <h4 style={{ margin: '0 0 4px', fontSize: '16px', color: '#ffffff' }}>
-                Water Aspect
-              </h4>
-              <p style={{ margin: '0 0 16px', fontSize: '13px', color: '#94a3b8' }}>
-                How is the water?
-              </p>
-
-              <div
-                style={{
-                  display: 'grid',
-                  gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))',
-                  gap: '10px',
-                  marginBottom: '16px'
-                }}
-              >
-                {[
-                  { id: 'clear', label: 'Clear/transparent (A)' },
-                  { id: 'turbid', label: 'Muddy/turbid (B)' },
-                  { id: 'foam', label: 'Has foam (C)' },
-                  { id: 'altered_color', label: 'Has colors/altered color (D)' },
-                  { id: 'unsure', label: "I'm not sure" }
-                ].map((opt) => (
-                  <button
-                    key={opt.id}
-                    onClick={() => setWaterAspect(opt.id as any)}
-                    style={{
-                      padding: '12px 14px',
-                      borderRadius: '8px',
-                      background: waterAspect === opt.id ? '#0284c7' : '#131e33',
-                      border: waterAspect === opt.id ? '2px solid #38bdf8' : '1px solid #334155',
-                      color: waterAspect === opt.id ? '#ffffff' : '#cbd5e1',
-                      fontWeight: 600,
-                      fontSize: '13px',
-                      cursor: 'pointer',
-                      textAlign: 'left'
-                    }}
-                  >
-                    <input
-                      type="radio"
-                      checked={waterAspect === opt.id}
-                      onChange={() => {}}
-                      style={{ marginRight: '8px' }}
-                    />
-                    {opt.label}
-                  </button>
-                ))}
-              </div>
-
-              <div
-                style={{
-                  borderRadius: '10px',
-                  overflow: 'hidden',
-                  border: '1px solid #334155',
-                  maxHeight: '180px'
-                }}
-              >
-                <img
-                  src="/app_photos/image12.png"
-                  alt="Water Aspect Reference A, B, C, D"
-                  style={{ width: '100%', height: '180px', objectFit: 'cover' }}
-                />
-              </div>
-            </div>
-
-            <div
-              style={{
-                background: '#0f172a',
-                border: '1px solid #1e293b',
-                borderRadius: '12px',
-                padding: '20px',
-                marginBottom: '20px'
-              }}
-            >
-              <h4 style={{ margin: '0 0 4px', fontSize: '16px', color: '#ffffff' }}>
-                Water Flow
-              </h4>
-              <p style={{ margin: '0 0 16px', fontSize: '13px', color: '#94a3b8' }}>
-                How is the water flowing?
-              </p>
-
-              <div
-                style={{
-                  display: 'grid',
-                  gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))',
-                  gap: '10px',
-                  marginBottom: '16px'
-                }}
-              >
-                {[
-                  { id: 'fast', label: 'Fast (with waves or high velocity) (A)' },
-                  { id: 'slow', label: 'Slow (B)' },
-                  { id: 'stagnant', label: 'Stagnant/intermittent (C)' },
-                  { id: 'dry', label: 'Dry (D)' },
-                  { id: 'unsure', label: "I'm not sure" }
-                ].map((opt) => (
-                  <button
-                    key={opt.id}
-                    onClick={() => setWaterFlow(opt.id as any)}
-                    style={{
-                      padding: '12px 14px',
-                      borderRadius: '8px',
-                      background: waterFlow === opt.id ? '#0284c7' : '#131e33',
-                      border: waterFlow === opt.id ? '2px solid #38bdf8' : '1px solid #334155',
-                      color: waterFlow === opt.id ? '#ffffff' : '#cbd5e1',
-                      fontWeight: 600,
-                      fontSize: '13px',
-                      cursor: 'pointer',
-                      textAlign: 'left'
-                    }}
-                  >
-                    <input
-                      type="radio"
-                      checked={waterFlow === opt.id}
-                      onChange={() => {}}
-                      style={{ marginRight: '8px' }}
-                    />
-                    {opt.label}
-                  </button>
-                ))}
-              </div>
-
-              <div
-                style={{
-                  borderRadius: '10px',
-                  overflow: 'hidden',
-                  border: '1px solid #334155',
-                  maxHeight: '180px'
-                }}
-              >
-                <img
-                  src="/app_photos/image21.png"
-                  alt="Flow Velocity Reference A, B, C, D"
-                  style={{ width: '100%', height: '180px', objectFit: 'cover' }}
-                />
-              </div>
-            </div>
-
-            <div
-              style={{
-                display: 'grid',
-                gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))',
-                gap: '16px',
-                marginBottom: '20px'
-              }}
-            >
-              <div
-                style={{
-                  background: '#0f172a',
-                  border: '1px solid #1e293b',
-                  borderRadius: '12px',
-                  padding: '16px'
-                }}
-              >
-                <h4 style={{ margin: '0 0 4px', fontSize: '15px', color: '#ffffff' }}>
-                  Bottom Type
-                </h4>
-                <p style={{ margin: '0 0 10px', fontSize: '12px', color: '#94a3b8' }}>
-                  The bottom of the wet channel is...
-                </p>
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                  {[
-                    { id: 'natural', label: 'Natural (A)' },
-                    { id: 'artificial', label: 'Artificial (concrete or stones with concrete) (B)' },
-                    { id: 'unsure', label: "I'm not sure" }
-                  ].map((opt) => (
-                    <button
-                      key={opt.id}
-                      onClick={() => setBottomType(opt.id as any)}
-                      style={{
-                        padding: '10px 12px',
-                        borderRadius: '6px',
-                        background: bottomType === opt.id ? '#0284c7' : '#131e33',
-                        border: bottomType === opt.id ? '1px solid #38bdf8' : '1px solid #334155',
-                        color: '#ffffff',
-                        fontSize: '13px',
-                        cursor: 'pointer',
-                        textAlign: 'left'
-                      }}
-                    >
-                      {opt.label}
-                    </button>
-                  ))}
-                </div>
-              </div>
-
-              <div
-                style={{
-                  background: '#0f172a',
-                  border: '1px solid #1e293b',
-                  borderRadius: '12px',
-                  padding: '16px'
-                }}
-              >
-                <h4 style={{ margin: '0 0 4px', fontSize: '15px', color: '#ffffff' }}>
-                  Bank Type
-                </h4>
-                <p style={{ margin: '0 0 10px', fontSize: '12px', color: '#94a3b8' }}>
-                  The banks of the channel are...
-                </p>
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                  {[
-                    { id: 'natural', label: 'Natural (A)' },
-                    { id: 'artificial', label: 'Artificial (concrete or stones with concrete) (B)' },
-                    { id: 'unsure', label: "I'm not sure" }
-                  ].map((opt) => (
-                    <button
-                      key={opt.id}
-                      onClick={() => setBankType(opt.id as any)}
-                      style={{
-                        padding: '10px 12px',
-                        borderRadius: '6px',
-                        background: bankType === opt.id ? '#0284c7' : '#131e33',
-                        border: bankType === opt.id ? '1px solid #38bdf8' : '1px solid #334155',
-                        color: '#ffffff',
-                        fontSize: '13px',
-                        cursor: 'pointer',
-                        textAlign: 'left'
-                      }}
-                    >
-                      {opt.label}
-                    </button>
-                  ))}
-                </div>
-              </div>
-            </div>
-
-            <div
-              style={{
-                background: '#0f172a',
-                border: '1px solid #1e293b',
-                borderRadius: '12px',
-                padding: '20px'
-              }}
-            >
-              <div
-                style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '12px',
-                  marginBottom: '10px'
-                }}
-              >
-                <input
-                  type="checkbox"
-                  id="habitats_present"
-                  checked={hasHabitats}
-                  onChange={(e) => setHasHabitats(e.target.checked)}
-                  style={{ width: '18px', height: '18px' }}
-                />
-                <label
-                  htmlFor="habitats_present"
-                  style={{ fontWeight: 700, fontSize: '15px', color: '#ffffff' }}
-                >
-                  Are there any habitats present? (Riffles, pools, gravel bars, rocks)
+             <div style={{ marginBottom: '20px' }}>
+                <label style={{ display: 'block', marginBottom: '8px', fontWeight: 600, color: '#94a3b8' }}>
+                  Field Notes (Optional):
                 </label>
-              </div>
-
-              <div
-                style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '12px',
-                  marginBottom: '14px'
-                }}
-              >
-                <input
-                  type="checkbox"
-                  id="debris_present"
-                  checked={hasNaturalDebris}
-                  onChange={(e) => setHasNaturalDebris(e.target.checked)}
-                  style={{ width: '18px', height: '18px' }}
+                <textarea
+                  value={citizenNotes}
+                  onChange={(e) => setCitizenNotes(e.target.value)}
+                  style={{ width: '100%', padding: '12px', borderRadius: '8px', background: '#0f172a', border: '1px solid #1e293b', color: '#f8fafc', minHeight: '100px' }}
+                  placeholder="Describe anything else you noticed..."
                 />
-                <label
-                  htmlFor="debris_present"
-                  style={{ fontWeight: 700, fontSize: '15px', color: '#ffffff' }}
-                >
-                  Are there any natural debris present? (Fallen logs, leaf packs)
+             </div>
+             <div>
+                <label style={{ display: 'block', marginBottom: '8px', fontWeight: 600, color: '#94a3b8' }}>
+                  Your Confidence Level:
                 </label>
-              </div>
-
-              <div
-                style={{
-                  borderRadius: '10px',
-                  overflow: 'hidden',
-                  border: '1px solid #334155',
-                  maxHeight: '170px'
-                }}
-              >
-                <img
-                  src="/app_photos/image14.png"
-                  alt="Habitats and Debris Diagrams A-E"
-                  style={{ width: '100%', height: '170px', objectFit: 'cover' }}
-                />
-              </div>
-            </div>
-          </div>
-        )}
-
-        {/* STEP 6: Questions (3/3) - Surrounding Pressures & Artificial Elements */}
-        {currentStep === 6 && (
-          <div>
-            <div
-              style={{
-                background: '#131e33',
-                padding: '12px 16px',
-                borderRadius: '8px',
-                color: '#38bdf8',
-                fontSize: '14px',
-                fontWeight: 600,
-                marginBottom: '20px'
-              }}
-            >
-              Surrounding Pressures, Discharges & Artificial Elements
-            </div>
-
-            <div
-              style={{
-                display: 'grid',
-                gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))',
-                gap: '16px',
-                marginBottom: '24px'
-              }}
-            >
-              <div
-                style={{
-                  background: '#0f172a',
-                  border: '1px solid #1e293b',
-                  borderRadius: '12px',
-                  padding: '16px'
-                }}
-              >
-                <div style={{ height: '130px', borderRadius: '8px', overflow: 'hidden', marginBottom: '12px' }}>
-                  <img
-                    src="/app_photos/image1.jpg"
-                    alt="Discharge Pipe"
-                    style={{ width: '100%', height: '100%', objectFit: 'cover' }}
-                  />
-                </div>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                  <input
-                    type="checkbox"
-                    id="pipes"
-                    checked={hasArtificialPipes}
-                    onChange={(e) => setHasArtificialPipes(e.target.checked)}
-                    style={{ width: '18px', height: '18px' }}
-                  />
-                  <label htmlFor="pipes" style={{ fontSize: '14px', fontWeight: 600, color: '#ffffff' }}>
-                    Pipes or Outfalls Discharging into Stream
-                  </label>
-                </div>
-              </div>
-
-              <div
-                style={{
-                  background: '#0f172a',
-                  border: '1px solid #1e293b',
-                  borderRadius: '12px',
-                  padding: '16px'
-                }}
-              >
-                <div style={{ height: '130px', borderRadius: '8px', overflow: 'hidden', marginBottom: '12px' }}>
-                  <img
-                    src="/app_photos/image6.jpg"
-                    alt="Engineered Concrete Channel"
-                    style={{ width: '100%', height: '100%', objectFit: 'cover' }}
-                  />
-                </div>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                  <input
-                    type="checkbox"
-                    id="channelized"
-                    checked={bankType === 'artificial'}
-                    onChange={(e) => setBankType(e.target.checked ? 'artificial' : 'natural')}
-                    style={{ width: '18px', height: '18px' }}
-                  />
-                  <label htmlFor="channelized" style={{ fontSize: '14px', fontWeight: 600, color: '#ffffff' }}>
-                    Artificially Channelized / Reinforced Banks
-                  </label>
-                </div>
-              </div>
-
-              <div
-                style={{
-                  background: '#0f172a',
-                  border: '1px solid #1e293b',
-                  borderRadius: '12px',
-                  padding: '16px'
-                }}
-              >
-                <div style={{ height: '130px', borderRadius: '8px', overflow: 'hidden', marginBottom: '12px' }}>
-                  <img
-                    src="/app_photos/image22.png"
-                    alt="Weirs and Barriers"
-                    style={{ width: '100%', height: '100%', objectFit: 'cover' }}
-                  />
-                </div>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                  <input
-                    type="checkbox"
-                    id="barriers"
-                    checked={hasArtificialBarriers}
-                    onChange={(e) => setHasArtificialBarriers(e.target.checked)}
-                    style={{ width: '18px', height: '18px' }}
-                  />
-                  <label htmlFor="barriers" style={{ fontSize: '14px', fontWeight: 600, color: '#ffffff' }}>
-                    Weirs / Dams / Fish Migration Barriers
-                  </label>
-                </div>
-              </div>
-            </div>
-
-            <div
-              style={{
-                background: '#0f172a',
-                border: '1px solid #1e293b',
-                borderRadius: '12px',
-                padding: '18px',
-                display: 'flex',
-                flexWrap: 'wrap',
-                gap: '24px',
-                alignItems: 'center'
-              }}
-            >
-              <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                <input
-                  type="checkbox"
-                  id="trash"
-                  checked={hasLitterTrash}
-                  onChange={(e) => setHasLitterTrash(e.target.checked)}
-                  style={{ width: '18px', height: '18px' }}
-                />
-                <label htmlFor="trash" style={{ fontSize: '14px', fontWeight: 600, color: '#ffffff' }}>
-                  Plastic Litter / Dumped Garbage Present
-                </label>
-              </div>
-
-              <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                <label style={{ fontSize: '14px', color: '#94a3b8' }}>Water Odor:</label>
-                <select
-                  value={odor}
-                  onChange={(e) => setOdor(e.target.value as any)}
-                  style={{
-                    padding: '8px 12px',
-                    borderRadius: '6px',
-                    background: '#131e33',
-                    border: '1px solid #334155',
-                    color: '#ffffff',
-                    fontSize: '13px'
-                  }}
-                >
-                  <option value="none">None (Natural)</option>
-                  <option value="earthy">Earthy / Wetland</option>
-                  <option value="sewage">Sewage / Rotten Egg</option>
-                  <option value="chemical">Chemical / Petroleum</option>
-                  <option value="fishy">Fishy</option>
-                </select>
-              </div>
-            </div>
-          </div>
-        )}
-
-        {/* STEP 7: Feedback (1/2) - Overall Health Rating */}
-        {currentStep === 7 && (
-          <div>
-            <div
-              style={{
-                background: '#131e33',
-                padding: '14px 18px',
-                borderRadius: '8px',
-                color: '#38bdf8',
-                fontSize: '15px',
-                fontWeight: 600,
-                marginBottom: '24px',
-                textAlign: 'center'
-              }}
-            >
-              Provide an overall assessment of the stream ecosystem health
-              <div style={{ fontSize: '12px', color: '#94a3b8', fontWeight: 400, marginTop: '4px' }}>
-                (Choose one of the below possibilities — matching Image 9 of the app)
-              </div>
-            </div>
-
-            <div
-              style={{
-                display: 'grid',
-                gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))',
-                gap: '20px'
-              }}
-            >
-              <div
-                onClick={() => setOverallHealthRating('good')}
-                style={{
-                  background: overallHealthRating === 'good' ? '#09291f' : '#0f172a',
-                  border:
-                    overallHealthRating === 'good'
-                      ? '2px solid #10b981'
-                      : '1px solid #1e293b',
-                  borderRadius: '14px',
-                  padding: '24px',
-                  cursor: 'pointer',
-                  transition: 'all 0.2s ease',
-                  boxShadow:
-                    overallHealthRating === 'good'
-                      ? '0 0 25px rgba(16, 185, 129, 0.25)'
-                      : 'none'
-                }}
-              >
-                <div
-                  style={{
-                    color: '#10b981',
-                    fontSize: '20px',
-                    fontWeight: 800,
-                    marginBottom: '10px',
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: '8px'
-                  }}
-                >
-                  <CheckCircle2 size={24} /> Good quality
-                </div>
-                <p style={{ fontSize: '14px', color: '#cbd5e1', lineHeight: '1.6', margin: 0 }}>
-                  The ecosystem components are there: riparian vegetation, natural channel,
-                  good water quality, biodiversity.
-                </p>
-              </div>
-
-              <div
-                onClick={() => setOverallHealthRating('moderate')}
-                style={{
-                  background: overallHealthRating === 'moderate' ? '#2f2409' : '#0f172a',
-                  border:
-                    overallHealthRating === 'moderate'
-                      ? '2px solid #f59e0b'
-                      : '1px solid #1e293b',
-                  borderRadius: '14px',
-                  padding: '24px',
-                  cursor: 'pointer',
-                  transition: 'all 0.2s ease',
-                  boxShadow:
-                    overallHealthRating === 'moderate'
-                      ? '0 0 25px rgba(245, 158, 11, 0.25)'
-                      : 'none'
-                }}
-              >
-                <div
-                  style={{
-                    color: '#f59e0b',
-                    fontSize: '20px',
-                    fontWeight: 800,
-                    marginBottom: '10px',
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: '8px'
-                  }}
-                >
-                  <AlertTriangle size={24} /> Moderate quality
-                </div>
-                <p style={{ fontSize: '14px', color: '#cbd5e1', lineHeight: '1.6', margin: 0 }}>
-                  Some alterations, still biodiverse, with vegetation in the margins, water
-                  looks good...
-                </p>
-              </div>
-
-              <div
-                onClick={() => setOverallHealthRating('poor')}
-                style={{
-                  background: overallHealthRating === 'poor' ? '#2e1014' : '#0f172a',
-                  border:
-                    overallHealthRating === 'poor'
-                      ? '2px solid #ef4444'
-                      : '1px solid #1e293b',
-                  borderRadius: '14px',
-                  padding: '24px',
-                  cursor: 'pointer',
-                  transition: 'all 0.2s ease',
-                  boxShadow:
-                    overallHealthRating === 'poor'
-                      ? '0 0 25px rgba(239, 68, 68, 0.25)'
-                      : 'none'
-                }}
-              >
-                <div
-                  style={{
-                    color: '#ef4444',
-                    fontSize: '20px',
-                    fontWeight: 800,
-                    marginBottom: '10px',
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: '8px'
-                  }}
-                >
-                  <AlertTriangle size={24} /> Poor quality
-                </div>
-                <p style={{ fontSize: '14px', color: '#cbd5e1', lineHeight: '1.6', margin: 0 }}>
-                  Highly modified / artificialized, loss of riparian vegetation, loss of
-                  habitats, polluted.
-                </p>
-              </div>
-            </div>
-          </div>
-        )}
-
-        {/* STEP 8: Feedback (2/2) - Additional Notes & Citizen Confidence */}
-        {currentStep === 8 && (
-          <div>
-            <div
-              style={{
-                display: 'grid',
-                gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))',
-                gap: '20px',
-                marginBottom: '20px'
-              }}
-            >
-              <div
-                style={{
-                  background: '#0f172a',
-                  border: '1px solid #1e293b',
-                  borderRadius: '12px',
-                  padding: '20px'
-                }}
-              >
-                <h4 style={{ margin: '0 0 12px', fontSize: '16px', color: '#ffffff' }}>
-                  Weather & Sampling Conditions
-                </h4>
-
-                <label style={{ fontSize: '13px', color: '#94a3b8', display: 'block', marginBottom: '6px' }}>
-                  Current Weather:
-                </label>
-                <select
-                  value={weatherCondition}
-                  onChange={(e) => setWeatherCondition(e.target.value)}
-                  style={{
-                    width: '100%',
-                    padding: '10px',
-                    background: '#131e33',
-                    border: '1px solid #334155',
-                    borderRadius: '8px',
-                    color: '#ffffff',
-                    fontSize: '13px',
-                    marginBottom: '16px'
-                  }}
-                >
-                  <option value="Sunny / Clear">Sunny / Clear</option>
-                  <option value="Overcast / Cloudy">Overcast / Cloudy</option>
-                  <option value="Light Rain">Light Rain</option>
-                  <option value="Heavy Rain in past 24h (Storm Event)">
-                    Heavy Rain in past 24h (Storm Event)
-                  </option>
-                  <option value="Snow / Freezing">Snow / Freezing</option>
-                </select>
-
-                <label style={{ fontSize: '13px', color: '#94a3b8', display: 'block', marginBottom: '6px' }}>
-                  Your Confidence Level in this Assessment:
-                </label>
-                <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                <div style={{ display: 'flex', gap: '8px' }}>
                   {[1, 2, 3, 4, 5].map((star) => (
                     <button
                       key={star}
                       onClick={() => setCitizenConfidence(star)}
                       style={{
-                        padding: '8px 14px',
-                        borderRadius: '6px',
+                        flex: 1, padding: '12px', borderRadius: '8px', cursor: 'pointer',
                         background: citizenConfidence >= star ? '#0284c7' : '#1e293b',
                         border: citizenConfidence >= star ? '1px solid #38bdf8' : '1px solid #334155',
                         color: citizenConfidence >= star ? '#ffffff' : '#64748b',
-                        fontWeight: 700,
-                        fontSize: '14px',
-                        cursor: 'pointer'
+                        fontWeight: 700
                       }}
                     >
-                      ★ {star}
+                      {star}
                     </button>
                   ))}
-                  <span style={{ fontSize: '12px', color: '#38bdf8', marginLeft: '6px' }}>
-                    {citizenConfidence === 5 ? 'Very Confident' : `${citizenConfidence}/5`}
-                  </span>
                 </div>
-              </div>
-
-              <div
-                style={{
-                  background: '#0f172a',
-                  border: '1px solid #1e293b',
-                  borderRadius: '12px',
-                  padding: '20px'
-                }}
-              >
-                <h4 style={{ margin: '0 0 12px', fontSize: '16px', color: '#ffffff' }}>
-                  Volunteer Field Notes & Observations
-                </h4>
-                <textarea
-                  rows={5}
-                  value={citizenNotes}
-                  onChange={(e) => setCitizenNotes(e.target.value)}
-                  placeholder="Describe wildlife, fish sightings, water color changes, recent maintenance or nearby construction..."
-                  style={{
-                    width: '100%',
-                    padding: '12px',
-                    background: '#131e33',
-                    border: '1px solid #334155',
-                    borderRadius: '8px',
-                    color: '#ffffff',
-                    fontSize: '13px',
-                    boxSizing: 'border-box',
-                    fontFamily: 'inherit'
-                  }}
-                />
-              </div>
-            </div>
-
-            <div style={{ textAlign: 'center' }}>
-              <button
-                onClick={() => setCurrentStep(9)}
-                style={{
-                  padding: '14px 32px',
-                  borderRadius: '10px',
-                  background: '#10b981',
-                  color: '#ffffff',
-                  fontWeight: 700,
-                  fontSize: '15px',
-                  border: 'none',
-                  cursor: 'pointer',
-                  display: 'inline-flex',
-                  alignItems: 'center',
-                  gap: '8px',
-                  boxShadow: '0 4px 15px rgba(16, 185, 129, 0.4)'
-                }}
-              >
-                <Sparkles size={18} /> Continue to Real-Time AI Stream Assessment
-              </button>
-            </div>
+             </div>
           </div>
         )}
 
-        {/* STEP 9: AI Real-Time Stream Assessment & Submission */}
-        {currentStep === 9 && (
+        {/* STEP 6: AI Real-Time Stream Assessment & Submission */}
+        {currentStep === 6 && (
           <div>
             <div
               style={{

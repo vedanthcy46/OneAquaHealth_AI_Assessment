@@ -41,8 +41,50 @@ export class OfflineStorageService {
         list.unshift(obs);
       }
       localStorage.setItem(STORAGE_KEY, JSON.stringify(list));
+      
+      // Sync to the real backend in the background
+      if (this.isOnline()) {
+        this.syncToBackend(obs).catch(console.error);
+      }
     } catch (e) {
       console.error('Failed to save observation to offline storage', e);
+    }
+  }
+
+  // Bridging the mock frontend to the real backend!
+  private static async syncToBackend(obs: Observation) {
+    try {
+      // 1. Authenticate as a citizen using hardcoded seed credentials
+      const authRes = await fetch('http://localhost:3001/auth/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: 'alice@example.com', password: 'Password123!' })
+      });
+      const authData = await authRes.json();
+      if (!authData.success) return;
+      const token = authData.data.token;
+
+      // 2. Submit the observation to the real DB
+      await fetch('http://localhost:3001/observations', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify({
+          siteId: obs.siteId || 'some-site-id',
+          localId: obs.id,
+          gps: {
+            lat: obs.gps?.lat || 0,
+            lng: obs.gps?.lng || 0,
+            accuracy: obs.gps?.accuracy || 5
+          },
+          observedAt: obs.observedAt,
+          envObservations: obs.envObservations
+        })
+      });
+    } catch (err) {
+      console.error('Failed to sync to real backend', err);
     }
   }
 
