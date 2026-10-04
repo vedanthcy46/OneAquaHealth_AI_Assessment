@@ -30,6 +30,7 @@ function spawnPythonPipeline(payload: any): Promise<any> {
 
     cp.stdout.on('data', (data: Buffer) => { stdout += data.toString(); });
     cp.stderr.on('data', (data: Buffer) => { stderr += data.toString(); });
+    cp.on('error', (err) => { reject(err); });
 
     cp.on('close', (code: number) => {
       if (code === 0 || code === 1) {
@@ -64,12 +65,12 @@ export async function aiRoutes(app: FastifyInstance) {
       return reply.status(400).send({ error: 'imageBase64 is required' });
     }
 
-    // Save base64 to temp file for OpenCV and vision analysis
-    const base64Data = imageBase64.replace(/^data:image\/\w+;base64,/, '');
-    const tempPath = path.join(process.cwd(), `temp_${uuidv4()}.jpg`);
-    fs.writeFileSync(tempPath, base64Data, { encoding: 'base64' });
-
+    let tempPath = '';
     try {
+      const base64Data = imageBase64.replace(/^data:image\/\w+;base64,/, '');
+      tempPath = path.join(process.cwd(), `temp_${uuidv4()}.jpg`);
+      fs.writeFileSync(tempPath, base64Data, { encoding: 'base64' });
+
       // Call the Python AI service
       const result = await spawnPythonPipeline({
         observation_id: 'sync-' + uuidv4(),
@@ -83,7 +84,7 @@ export async function aiRoutes(app: FastifyInstance) {
       return reply.status(500).send({ success: false, error: err.message });
     } finally {
       // Cleanup temp file
-      if (fs.existsSync(tempPath)) {
+      if (tempPath && fs.existsSync(tempPath)) {
         try { fs.unlinkSync(tempPath); } catch {}
       }
     }

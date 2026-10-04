@@ -35,7 +35,7 @@ async function build() {
   // ── Security ──────────────────────────────────────────────────────────────
   await app.register(helmet, { global: true });
   await app.register(cors, {
-    origin: [env.FRONTEND_URL, 'http://localhost:3000', 'http://localhost:5173'],
+    origin: true,
     credentials: true,
   });
   await app.register(rateLimit, {
