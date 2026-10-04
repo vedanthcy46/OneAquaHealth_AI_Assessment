@@ -80,8 +80,8 @@ export class OfflineStorageService {
         try {
           const sitesRes = await fetch(`${import.meta.env.VITE_API_URL || 'http://localhost:3001'}/sites?limit=1`);
           const sitesData = await sitesRes.json();
-          if (sitesData.success && sitesData.data?.items?.length > 0) {
-            targetSiteId = sitesData.data.items[0].id;
+          if (sitesData.success && Array.isArray(sitesData.data) && sitesData.data.length > 0) {
+            targetSiteId = sitesData.data[0].id;
           }
         } catch {
           // fallback
@@ -110,6 +110,11 @@ export class OfflineStorageService {
 
       const createData = await createRes.json();
       const serverObsId = createData?.data?.id || obs.id;
+
+      if (!createData.success || !serverObsId.match(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i)) {
+        console.warn('Observation creation failed or returned invalid UUID. Skipping media sync.', createData);
+        continue;
+      }
 
       // 4. Upload and persist all photos and video to backend storage
       if (obs.media && obs.media.length > 0) {
@@ -155,14 +160,12 @@ export class OfflineStorageService {
           }
         }
 
-        // 5. Update local storage with the permanent server URLs
-        if (mediaChanged) {
-          const list = this.getObservations();
-          const idx = list.findIndex((o) => o.id === obs.id);
-          if (idx >= 0) {
-            list[idx] = { ...obs };
-            localStorage.setItem(STORAGE_KEY, JSON.stringify(list));
-          }
+        // 5. Update local storage with the permanent server URLs and real DB ID
+        const list = this.getObservations();
+        const idx = list.findIndex((o) => o.id === obs.id);
+        if (idx >= 0) {
+          list[idx] = { ...obs, id: serverObsId, syncStatus: 'SYNCED' };
+          localStorage.setItem(STORAGE_KEY, JSON.stringify(list));
         }
       }
     } catch (err) {
