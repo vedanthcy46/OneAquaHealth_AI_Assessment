@@ -145,6 +145,7 @@ CREATE TABLE IF NOT EXISTS media (
   observation_id       UUID REFERENCES observations(id) ON DELETE CASCADE,
   url                  TEXT NOT NULL,
   original_url         TEXT,
+  public_id            TEXT,                  -- Cloudinary public_id (for deletion/transform)
   hash                 TEXT NOT NULL,
   phash                TEXT,
   mime_type            TEXT NOT NULL DEFAULT 'image/jpeg',

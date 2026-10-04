@@ -339,9 +339,24 @@ h1, h2, h3, h4, h5, h6 {
   .grid-2, .grid-3, .grid-4 {
     grid-template-columns: 1fr;
   }
+  
+  .nav-row {
+    flex-wrap: wrap;
+    justify-content: center;
+    gap: 12px;
+  }
+  
   .nav-tabs {
     overflow-x: auto;
     max-width: 100%;
+    width: 100%;
+    justify-content: flex-start;
+    padding-bottom: 4px;
+    -webkit-overflow-scrolling: touch;
+  }
+  
+  .top-header {
+    padding: 12px 16px;
   }
 }
 

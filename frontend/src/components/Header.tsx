@@ -9,6 +9,7 @@ import {
   Wifi,
   WifiOff,
   Sparkles,
+  User as UserIcon,
 } from 'lucide-react';
 import { OfflineStorageService } from '../services/offlineStorage';
 
@@ -29,6 +30,7 @@ export const Header: React.FC<HeaderProps> = ({
     const handleNetworkChange = () => {
       setIsOnline(OfflineStorageService.isOnline());
     };
+
     window.addEventListener('aquaguard-network-change', handleNetworkChange);
     window.addEventListener('online', handleNetworkChange);
     window.addEventListener('offline', handleNetworkChange);
@@ -138,7 +140,6 @@ export const Header: React.FC<HeaderProps> = ({
           </button>
         </nav>
 
-        {/* Actions & Network Status */}
         <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
           {/* Golden Demo Shortcut */}
           <button

@@ -35,15 +35,20 @@ is an integration boundary, not a unit — it is dependent on external APIs.
 from __future__ import annotations
 
 import json
+import logging
 import sys
 from typing import Any, Dict
 
-from ai.layer_c.adaptive_questions import AdaptiveQuestionGenerator
-from ai.layer_d.cross_validator import CrossValidator
-from ai.pipeline.orchestrator import AIPipelineOrchestrator
+# Force all logging to stderr so stdout remains 100% pure JSON for Node.js IPC
+logging.basicConfig(
+    stream=sys.stderr,
+    level=logging.INFO,
+    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+    force=True
+)
 
 
-def _build_orchestrator() -> AIPipelineOrchestrator:
+def _build_orchestrator() -> Any:
     """
     Wire the pipeline with the real provider chain (OpenAI primary, Gemini
     fallback). Providers are imported lazily so a caller can still import this
@@ -51,6 +56,9 @@ def _build_orchestrator() -> AIPipelineOrchestrator:
     """
     from ai.layer_a.quality_engine import ImageQualityEngine
     from ai.layer_b.evidence_detector import EcologicalEvidenceDetector
+    from ai.layer_c.adaptive_questions import AdaptiveQuestionGenerator
+    from ai.layer_d.cross_validator import CrossValidator
+    from ai.pipeline.orchestrator import AIPipelineOrchestrator
     from ai.providers.openai_provider import OpenAIVisionProvider
     from ai.providers.gemini_provider import GeminiVisionProvider
     from ai.providers.local_cv_provider import LocalCVProvider

@@ -27,6 +27,11 @@ export const env = {
   S3_SECRET_KEY: optional('S3_SECRET_KEY', ''),
   S3_REGION:     optional('S3_REGION', 'auto'),
 
+  // Cloudinary (preferred for production — free tier, no egress costs)
+  CLOUDINARY_CLOUD_NAME: optional('CLOUDINARY_CLOUD_NAME', ''),
+  CLOUDINARY_API_KEY:    optional('CLOUDINARY_API_KEY', ''),
+  CLOUDINARY_API_SECRET: optional('CLOUDINARY_API_SECRET', ''),
+
   AI_PROVIDER:   optional('AI_PROVIDER', 'gemini'),
   GEMINI_API_KEY:  optional('GEMINI_API_KEY', ''),
   OPENAI_API_KEY:  optional('OPENAI_API_KEY', ''),

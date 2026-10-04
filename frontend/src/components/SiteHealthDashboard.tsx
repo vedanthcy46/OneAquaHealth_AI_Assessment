@@ -113,9 +113,9 @@ export const SiteHealthDashboard: React.FC = () => {
     setIsLoading(true);
     try {
       const [timelineRes, trendsRes, alertsRes] = await Promise.all([
-        fetch(`http://localhost:3001/sites/${siteId}/timeline?weeks=12`),
-        fetch(`http://localhost:3001/sites/${siteId}/trends`),
-        fetch(`http://localhost:3001/sites/${siteId}/alerts`),
+        fetch(`${import.meta.env.VITE_API_URL || 'http://localhost:3001'}/sites/${siteId}/timeline?weeks=12`),
+        fetch(`${import.meta.env.VITE_API_URL || 'http://localhost:3001'}/sites/${siteId}/trends`),
+        fetch(`${import.meta.env.VITE_API_URL || 'http://localhost:3001'}/sites/${siteId}/alerts`),
       ]);
 
       const timelineData = await timelineRes.json();

@@ -1,5 +1,6 @@
 import type { Observation, SyncStatus } from '../types';
 import { SEEDED_OBSERVATIONS } from '../data/mockData';
+import { AuthService } from './authService';
 
 const STORAGE_KEY = 'aquaguard_observations_v1';
 const NETWORK_SIM_KEY = 'aquaguard_network_online';
@@ -54,22 +55,30 @@ export class OfflineStorageService {
   // Bridging the frontend observation to the real backend and media storage!
   private static async syncToBackend(obs: Observation) {
     try {
-      // 1. Authenticate as a citizen using seed credentials
-      const authRes = await fetch('http://localhost:3001/auth/login', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email: 'alice@example.com', password: 'Password123!' })
-      });
-      const authData = await authRes.json();
-      if (!authData.success) return;
-      const token = authData.data.token;
+      const currentUser = AuthService.getCurrentUser();
+      let token = currentUser.token;
+
+      // If token missing, authenticate using current user or seed fallback
+      if (!token) {
+        const authRes = await fetch(`${import.meta.env.VITE_API_URL || 'http://localhost:3001'}/auth/login`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            email: currentUser.email || 'alice@example.com',
+            password: 'Password123!',
+          }),
+        });
+        const authData = await authRes.json();
+        if (!authData.success) return;
+        token = authData.data.token;
+      }
 
       // 2. Resolve valid site UUID for DB foreign key
       let targetSiteId = obs.siteId;
       const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
       if (!targetSiteId || !uuidRegex.test(targetSiteId)) {
         try {
-          const sitesRes = await fetch('http://localhost:3001/sites?limit=1');
+          const sitesRes = await fetch(`${import.meta.env.VITE_API_URL || 'http://localhost:3001'}/sites?limit=1`);
           const sitesData = await sitesRes.json();
           if (sitesData.success && sitesData.data?.items?.length > 0) {
             targetSiteId = sitesData.data.items[0].id;
@@ -80,7 +89,7 @@ export class OfflineStorageService {
       }
 
       // 3. Submit the observation to the real DB
-      const createRes = await fetch('http://localhost:3001/observations', {
+      const createRes = await fetch(`${import.meta.env.VITE_API_URL || 'http://localhost:3001'}/observations`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -122,7 +131,7 @@ export class OfflineStorageService {
 
             // Upload to backend media storage
             if (dataUrl.startsWith('data:') || dataUrl.startsWith('http')) {
-              const upRes = await fetch(`http://localhost:3001/observations/${serverObsId}/media/upload`, {
+              const upRes = await fetch(`${import.meta.env.VITE_API_URL || 'http://localhost:3001'}/observations/${serverObsId}/media/upload`, {
                 method: 'POST',
                 headers: {
                   'Content-Type': 'application/json',

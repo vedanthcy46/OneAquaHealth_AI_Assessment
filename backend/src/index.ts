@@ -22,6 +22,7 @@ import { aiRoutes }          from './routes/ai';
 import { db } from './db';
 
 const app = Fastify({
+  bodyLimit: 50 * 1024 * 1024, // 50MB for video and high-res images
   logger: {
     level: env.LOG_LEVEL,
     ...(env.NODE_ENV === 'development' ? {

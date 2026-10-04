@@ -6,12 +6,19 @@ import {
 } from 'lucide-react';
 import type { Observation } from '../types';
 import { OfflineStorageService } from '../services/offlineStorage';
+import { MediaPreviewModal } from './MediaPreviewModal';
+import type { MediaItem } from './MediaPreviewModal';
 
 export const MyObservations: React.FC = () => {
   const [observations, setObservations] = useState<Observation[]>(OfflineStorageService.getObservations());
+  const [previewModal, setPreviewModal] = useState<{ isOpen: boolean; items: MediaItem[]; initialIndex: number }>({
+    isOpen: false,
+    items: [],
+    initialIndex: 0,
+  });
 
   useEffect(() => {
-    fetch('http://localhost:3001/observations?limit=100')
+    fetch(`${import.meta.env.VITE_API_URL || 'http://localhost:3001'}/observations?limit=100`)
       .then(r => r.json())
       .then(data => {
         if (data.success && data.data?.items?.length > 0) {
@@ -225,21 +232,39 @@ export const MyObservations: React.FC = () => {
                       return (
                         <div
                           key={m.id || idx}
+                          onClick={() => {
+                            if (!selectedObs.media) return;
+                            setPreviewModal({
+                              isOpen: true,
+                              initialIndex: idx,
+                              items: selectedObs.media.map((item, i) => ({
+                                url: item.url,
+                                mimeType: item.mimeType,
+                                title: item.mimeType?.startsWith('video') ? 'Stream Flow Video' : `Evidence #${i + 1}`,
+                                caption: `${selectedObs.siteName} • Observed by ${selectedObs.observerName || 'Citizen'}`,
+                                qualityScore: item.qualityScore,
+                              })),
+                            });
+                          }}
                           style={{
                             background: '#091122',
                             border: '1px solid var(--border-subtle)',
                             borderRadius: '8px',
                             overflow: 'hidden',
-                            padding: '6px'
+                            padding: '6px',
+                            cursor: 'pointer',
                           }}
+                          title="Click to preview full-screen"
                         >
-                          <div style={{ fontSize: '11px', color: isVideo ? '#34d399' : '#38bdf8', marginBottom: '4px', fontWeight: 600 }}>
-                            {isVideo ? '🎥 Stream Video' : `📷 Evidence #${idx + 1}`}
+                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '4px' }}>
+                            <div style={{ fontSize: '11px', color: isVideo ? '#34d399' : '#38bdf8', fontWeight: 600 }}>
+                              {isVideo ? '🎥 Stream Video' : `📷 Evidence #${idx + 1}`}
+                            </div>
+                            <span style={{ fontSize: '10px', color: '#38bdf8' }}>🔍 Enlarge</span>
                           </div>
                           {isVideo ? (
                             <video
                               src={m.url}
-                              controls
                               style={{ width: '100%', height: '90px', objectFit: 'cover', borderRadius: '4px' }}
                             />
                           ) : (
@@ -262,6 +287,14 @@ export const MyObservations: React.FC = () => {
           </div>
         </div>
       )}
+
+      {/* Media Preview Modal */}
+      <MediaPreviewModal
+        isOpen={previewModal.isOpen}
+        onClose={() => setPreviewModal((p) => ({ ...p, isOpen: false }))}
+        mediaList={previewModal.items}
+        initialIndex={previewModal.initialIndex}
+      />
     </div>
   );
 };

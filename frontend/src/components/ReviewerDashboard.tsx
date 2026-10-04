@@ -14,6 +14,8 @@ import {
 } from 'lucide-react';
 import type { Observation, ReviewDecision } from '../types';
 import { OfflineStorageService } from '../services/offlineStorage';
+import { MediaPreviewModal } from './MediaPreviewModal';
+import type { MediaItem } from './MediaPreviewModal';
 
 export const ReviewerDashboard: React.FC = () => {
   const [observations, setObservations] = useState<Observation[]>([]);
@@ -26,7 +28,7 @@ export const ReviewerDashboard: React.FC = () => {
       setObservations(offline);
       // Attempt to fetch real data
       try {
-        const res = await fetch('http://localhost:3001/observations?limit=50');
+        const res = await fetch(`${import.meta.env.VITE_API_URL || 'http://localhost:3001'}/observations?limit=50`);
         const data = await res.json();
         if (data.success && data.data?.items?.length > 0) {
           const apiIds = new Set(data.data.items.map((o: any) => o.id));
@@ -63,6 +65,7 @@ export const ReviewerDashboard: React.FC = () => {
 
   const [selectedObs, setSelectedObs] = useState<Observation | null>(null);
   const [selectedMediaIdx, setSelectedMediaIdx] = useState<number>(0);
+  const [showMediaPreview, setShowMediaPreview] = useState<boolean>(false);
 
   // Filters
   const [statusFilter, setStatusFilter] = useState<string>('ALL');
@@ -145,7 +148,7 @@ export const ReviewerDashboard: React.FC = () => {
 
     // Sync review decision to backend
     try {
-      await fetch(`http://localhost:3001/review/${selectedObs.id}/decision`, {
+      await fetch(`${import.meta.env.VITE_API_URL || 'http://localhost:3001'}/review/${selectedObs.id}/decision`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ decision, reason: reviewReason })
@@ -486,6 +489,7 @@ export const ReviewerDashboard: React.FC = () => {
                 )}
 
                 <div
+                  onClick={() => setShowMediaPreview(true)}
                   style={{
                     position: 'relative',
                     borderRadius: 'var(--radius-md)',
@@ -493,8 +497,31 @@ export const ReviewerDashboard: React.FC = () => {
                     border: '1px solid var(--border-subtle)',
                     background: '#000',
                     minHeight: '340px',
+                    cursor: 'pointer',
                   }}
+                  title="Click to open full-screen media preview & zoom"
                 >
+                  <div
+                    style={{
+                      position: 'absolute',
+                      top: '10px',
+                      right: '10px',
+                      zIndex: 10,
+                      background: 'rgba(15, 23, 42, 0.85)',
+                      border: '1px solid rgba(56, 189, 248, 0.4)',
+                      padding: '4px 10px',
+                      borderRadius: '6px',
+                      color: '#38bdf8',
+                      fontSize: '11px',
+                      fontWeight: 600,
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '4px',
+                      pointerEvents: 'none',
+                    }}
+                  >
+                    <Eye size={12} /> Click to Enlarge
+                  </div>
                   {(() => {
                     const currentMedia = selectedObs.media[selectedMediaIdx] || selectedObs.media[0];
                     const isVideo = currentMedia?.mimeType?.startsWith('video') || currentMedia?.url?.endsWith('.mp4') || currentMedia?.id?.includes('vid');
@@ -783,6 +810,21 @@ export const ReviewerDashboard: React.FC = () => {
             </div>
           </div>
         </div>
+      )}
+      {/* Media Preview Lightbox Modal */}
+      {selectedObs && (
+        <MediaPreviewModal
+          isOpen={showMediaPreview}
+          onClose={() => setShowMediaPreview(false)}
+          initialIndex={selectedMediaIdx}
+          mediaList={selectedObs.media.map((m, idx) => ({
+            url: m.url,
+            mimeType: m.mimeType,
+            title: m.mimeType?.startsWith('video') ? 'Stream Flow Video' : `Evidence Photo #${idx + 1}`,
+            caption: `${selectedObs.siteName} • Observed by ${selectedObs.observerName || 'Citizen'}`,
+            qualityScore: m.qualityScore,
+          }))}
+        />
       )}
     </div>
   );

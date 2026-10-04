@@ -1,12 +1,10 @@
 import { FastifyInstance } from 'fastify';
-import * as crypto from 'crypto';
-import * as fs from 'fs';
-import * as path from 'path';
 import { v4 as uuidv4 } from 'uuid';
 import { db } from '../db';
 import { storageService } from '../services/storage';
 import { auditService } from '../services/audit';
 import { aiQueue } from '../workers/queue';
+
 
 export async function mediaRoutes(app: FastifyInstance) {
   // POST /observations/:id/media/presign — get presigned S3 URL
@@ -14,7 +12,7 @@ export async function mediaRoutes(app: FastifyInstance) {
     const { id } = req.params as any;
     const { mimeType = 'image/jpeg', hash, fileSize } = req.body as any;
 
-    // Check observation exists and belongs to user
+    // Check observation exists
     const obs = await db.query('SELECT observer_id, status FROM observations WHERE id = $1', [id]);
     if (!obs.rows.length) return reply.status(404).send({ success: false, error: 'Observation not found', code: 'NOT_FOUND' });
 
@@ -24,27 +22,26 @@ export async function mediaRoutes(app: FastifyInstance) {
       if (dup.rows.length) {
         return reply.send({
           success: true,
-          data: {
-            duplicate: true,
-            existingMediaId: dup.rows[0].id,
-            message: 'An identical image has already been uploaded',
-          },
+          data: { duplicate: true, existingMediaId: dup.rows[0].id, message: 'An identical image has already been uploaded' },
         });
       }
     }
 
-    const { uploadUrl, key, publicUrl } = await storageService.getPresignedUploadUrl(id, mimeType);
-    const mediaId = uuidv4();
+    // With Cloudinary active, direct upload is preferred over presigned URLs.
+    // Return a hint to use the /upload endpoint instead.
+    if (storageService.isCloudinaryEnabled()) {
+      return reply.status(400).send({
+        success: false,
+        error: 'Presigned URLs are not used with Cloudinary. POST to /observations/:id/media/upload with { dataUrl } instead.',
+        code: 'USE_DIRECT_UPLOAD',
+      });
+    }
 
-    // Pre-register media row (status PENDING)
-    await db.query(`
-      INSERT INTO media (id, observation_id, url, hash, mime_type, file_size_bytes, analysis_status)
-      VALUES ($1, $2, $3, $4, $5, $6, 'PENDING')
-    `, [mediaId, id, publicUrl, hash ?? `pending-${mediaId}`, mimeType, fileSize ?? null]);
-
-    return reply.send({
-      success: true,
-      data: { mediaId, uploadUrl, key, publicUrl, duplicate: false, expiresAt: new Date(Date.now() + 3600000) },
+    // Legacy S3/R2 presign flow — only active when S3 credentials are configured
+    return reply.status(501).send({
+      success: false,
+      error: 'S3 presigned upload not configured. Use direct upload endpoint.',
+      code: 'NOT_IMPLEMENTED',
     });
   });
 
@@ -109,76 +106,63 @@ export async function mediaRoutes(app: FastifyInstance) {
     return reply.send({ success: true, data: { deleted: true } });
   });
 
-  // POST /observations/:id/media/upload — direct image/video upload with disk storage & media table recording
+  // POST /observations/:id/media/upload — direct upload (Cloudinary in prod, disk in dev)
   app.post('/:id/media/upload', async (req, reply) => {
     const { id } = req.params as any;
     const body = req.body as any;
 
-    let buffer: Buffer;
-    let mimeType = body.mimeType || 'image/jpeg';
-
-    if (body.dataUrl) {
-      const matches = body.dataUrl.match(/^data:([A-Za-z-+\/0-9]+);base64,(.+)$/);
-      if (matches) {
-        mimeType = matches[1];
-        buffer = Buffer.from(matches[2], 'base64');
-      } else {
-        buffer = Buffer.from(body.dataUrl, 'base64');
-      }
-    } else if (body.base64) {
-      buffer = Buffer.from(body.base64, 'base64');
-    } else {
-      return reply.status(400).send({ success: false, error: 'No media data provided' });
+    const dataUrl: string | undefined = body.dataUrl || body.base64;
+    if (!dataUrl) {
+      return reply.status(400).send({ success: false, error: 'No media data provided (send dataUrl or base64)' });
     }
 
-    const uploadsDir = path.join(process.cwd(), 'uploads');
-    if (!fs.existsSync(uploadsDir)) {
-      fs.mkdirSync(uploadsDir, { recursive: true });
+    const mimeType: string = body.mimeType || 'image/jpeg';
+
+    let result;
+    try {
+      result = await storageService.uploadMedia(id, dataUrl, mimeType, {
+        qualityScore:   body.qualityScore,
+        qualityFactors: body.qualityFactors,
+      });
+    } catch (uploadErr: any) {
+      req.log.error({ uploadErr }, 'Media upload failed');
+      return reply.status(500).send({ success: false, error: 'Upload failed: ' + (uploadErr.message ?? uploadErr) });
     }
 
-    const ext = mimeType.includes('video') ? 'mp4' : (mimeType.includes('png') ? 'png' : 'jpg');
-    const mediaId = uuidv4();
-    const filename = `${id}_${mediaId}.${ext}`;
-    const filePath = path.join(uploadsDir, filename);
-
-    fs.writeFileSync(filePath, buffer);
-
-    const hash = crypto.createHash('sha256').update(buffer).digest('hex');
-    const publicUrl = `http://localhost:${process.env.PORT || 3001}/uploads/${filename}`;
-    const fileSize = buffer.length;
-
-    // Insert record into PostgreSQL media table matching schema.sql
+    // Insert record into PostgreSQL media table
     try {
       await db.query(`
         INSERT INTO media (
-          id, observation_id, url, hash, mime_type, file_size_bytes,
+          id, observation_id, url, public_id, hash, mime_type, file_size_bytes,
           quality_score, quality_factors, analysis_status
         )
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'COMPLETE')
-        ON CONFLICT (id) DO UPDATE SET url = EXCLUDED.url
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, 'COMPLETE')
+        ON CONFLICT (id) DO UPDATE SET url = EXCLUDED.url, public_id = EXCLUDED.public_id
       `, [
-        mediaId,
+        result.mediaId,
         id,
-        publicUrl,
-        hash,
-        mimeType,
-        fileSize,
+        result.url,
+        result.publicId ?? null,
+        result.hash,
+        result.mimeType,
+        result.fileSizeBytes,
         body.qualityScore || 90,
         JSON.stringify(body.qualityFactors || {}),
       ]);
     } catch (dbErr) {
-      req.log.warn({ dbErr }, 'Could not insert into media DB table, saved file to disk');
+      req.log.warn({ dbErr }, 'Media uploaded to storage but failed to insert into DB');
     }
 
     return reply.send({
       success: true,
       data: {
-        mediaId,
-        url: publicUrl,
-        hash,
-        mimeType,
-        fileSizeBytes: fileSize,
-        status: 'COMPLETE'
+        mediaId:       result.mediaId,
+        url:           result.url,
+        hash:          result.hash,
+        mimeType:      result.mimeType,
+        fileSizeBytes: result.fileSizeBytes,
+        status:        'COMPLETE',
+        storage:       storageService.isCloudinaryEnabled() ? 'cloudinary' : 'local',
       }
     });
   });

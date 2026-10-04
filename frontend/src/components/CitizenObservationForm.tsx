@@ -26,6 +26,8 @@ import {
 import { OfflineStorageService } from '../services/offlineStorage';
 import { AdaptiveQuestionFlow } from './AdaptiveQuestionFlow';
 import { StreamMap } from './StreamMap';
+import { MediaPreviewModal } from './MediaPreviewModal';
+import type { MediaItem } from './MediaPreviewModal';
 
 interface CitizenObservationFormProps {
   onObservationSubmitted?: (obs: Observation) => void;
@@ -91,6 +93,24 @@ export const CitizenObservationForm: React.FC<CitizenObservationFormProps> = ({
   const [biodiversityPhoto, setBiodiversityPhoto] = useState<string>('/app_photos/image15.png');
   const [streamVideo, setStreamVideo] = useState<string | null>(null);
   const [streamVideoName, setStreamVideoName] = useState<string>('');
+  const [previewModal, setPreviewModal] = useState<{ isOpen: boolean; items: MediaItem[]; initialIndex: number }>({
+    isOpen: false,
+    items: [],
+    initialIndex: 0,
+  });
+
+  const openMediaPreview = (initialIndex: number) => {
+    const items: MediaItem[] = [
+      { url: upstreamPhoto, title: 'Upstream View', caption: 'Flow direction, clarity, and bank conditions looking upstream' },
+      { url: downstreamPhoto, title: 'Downstream View', caption: 'Downstream channel structure and water discharge' },
+      { url: surroundingPhoto, title: 'Surrounding Context', caption: 'Houses, roads, trees, and riparian buffer' },
+      { url: biodiversityPhoto, title: 'Biodiversity Element', caption: 'Aquatic plants, benthic macroinvertebrates, algae, or wildlife' },
+    ];
+    if (streamVideo) {
+      items.push({ url: streamVideo, mimeType: 'video/mp4', title: 'Stream Flow Video', caption: streamVideoName || 'Stream dynamics and velocity' });
+    }
+    setPreviewModal({ isOpen: true, items, initialIndex });
+  };
 
   // Step 4: Channel Form Questions (1/3)
   const [channelForm, setChannelForm] = useState<'flat' | 'u_shape' | 'v_shape' | 'unsure'>('u_shape');
@@ -129,6 +149,7 @@ export const CitizenObservationForm: React.FC<CitizenObservationFormProps> = ({
   const [validationWarnings, setValidationWarnings] = useState<any[]>([]);
   const [confidenceFactors, setConfidenceFactors] = useState<any>(null);
   const [submissionSuccess, setSubmissionSuccess] = useState<boolean>(false);
+  const [isSubmitting, setIsSubmitting] = useState<boolean>(false);
   const [submittedObsId, setSubmittedObsId] = useState<string | null>(null);
 
   // Auto trigger AI evaluation when reaching Step 9
@@ -164,7 +185,7 @@ export const CitizenObservationForm: React.FC<CitizenObservationFormProps> = ({
       };
 
       // 3. Call REAL Backend AI endpoint (which triggers Python)
-      const aiRes = await fetch('http://localhost:3001/ai/sync-analyze', {
+      const aiRes = await fetch(`${import.meta.env.VITE_API_URL || 'http://localhost:3001'}/ai/sync-analyze`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ imageBase64: base64, citizenAnswers: envObs })
@@ -245,6 +266,9 @@ export const CitizenObservationForm: React.FC<CitizenObservationFormProps> = ({
   };
 
   const handleFinalSubmit = () => {
+    if (isSubmitting || submissionSuccess) return;
+    setIsSubmitting(true);
+
     const envObs: EnvObservations = {
       waterClarity:
         waterAspect === 'clear'
@@ -442,6 +466,7 @@ export const CitizenObservationForm: React.FC<CitizenObservationFormProps> = ({
     OfflineStorageService.saveObservation(newObservation);
     setSubmittedObsId(newObsId);
     setSubmissionSuccess(true);
+    setIsSubmitting(false);
 
     if (onObservationSubmitted) {
       onObservationSubmitted(newObservation);
@@ -472,6 +497,8 @@ export const CitizenObservationForm: React.FC<CitizenObservationFormProps> = ({
     setCitizenConfidence(5);
     setCitizenNotes('Reference-level clear urban stream with rich gravel beds and healthy riparian verge.');
     setAiAnalysisComplete(false);
+    setSubmissionSuccess(false);
+    setIsSubmitting(false);
   };
 
   const loadPresetImpactedStream = () => {
@@ -498,6 +525,8 @@ export const CitizenObservationForm: React.FC<CitizenObservationFormProps> = ({
     setCitizenConfidence(4);
     setCitizenNotes('Visible discharge pipe, concrete canal walls, low dissolved oxygen sheen and urban runoff.');
     setAiAnalysisComplete(false);
+    setSubmissionSuccess(false);
+    setIsSubmitting(false);
   };
 
   const stepTitles = [
@@ -743,45 +772,57 @@ export const CitizenObservationForm: React.FC<CitizenObservationFormProps> = ({
             <ChevronLeft size={18} /> Previous
           </button>
 
-          <button
-            onClick={() => {
-              if (currentStep < 5) {
-                setCurrentStep((prev) => prev + 1);
-              } else {
-                handleFinalSubmit();
-              }
-            }}
-            style={{
-              flex: 1,
-              padding: '12px 18px',
-              borderRadius: '8px',
-              background: currentStep === 5 ? '#10b981' : '#38bdf8',
-              border: 'none',
-              color: currentStep === 5 ? '#ffffff' : '#0f172a',
-              fontWeight: 700,
-              fontSize: '14px',
-              cursor: 'pointer',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              gap: '8px',
-              transition: 'all 0.2s ease',
-              boxShadow:
-                currentStep === 5
-                  ? '0 0 20px rgba(16, 185, 129, 0.4)'
-                  : '0 0 16px rgba(56, 189, 248, 0.3)'
-            }}
-          >
-            {currentStep === 5 ? (
-              <>
-                <FileCheck size={18} /> Submit Observation & Run AI
-              </>
-            ) : (
-              <>
-                Next <ChevronRight size={18} />
-              </>
-            )}
-          </button>
+          {currentStep < 5 ? (
+            <button
+              onClick={() => setCurrentStep((prev) => prev + 1)}
+              style={{
+                flex: 1,
+                padding: '12px 18px',
+                borderRadius: '8px',
+                background: '#38bdf8',
+                border: 'none',
+                color: '#0f172a',
+                fontWeight: 700,
+                fontSize: '14px',
+                cursor: 'pointer',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                gap: '8px',
+                transition: 'all 0.2s ease',
+                boxShadow: '0 0 16px rgba(56, 189, 248, 0.3)'
+              }}
+            >
+              Next Step <ChevronRight size={18} />
+            </button>
+          ) : (
+            <div
+              style={{
+                flex: 1,
+                padding: '10px 16px',
+                borderRadius: '8px',
+                background: submissionSuccess ? 'rgba(16, 185, 129, 0.15)' : 'rgba(56, 189, 248, 0.1)',
+                border: submissionSuccess ? '1px solid rgba(16, 185, 129, 0.4)' : '1px solid rgba(56, 189, 248, 0.3)',
+                color: submissionSuccess ? '#34d399' : '#38bdf8',
+                fontWeight: 600,
+                fontSize: '13px',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                gap: '6px'
+              }}
+            >
+              {submissionSuccess ? (
+                <>
+                  <CheckCircle2 size={16} /> Observation Submitted & Recorded
+                </>
+              ) : (
+                <>
+                  <Sparkles size={16} /> Final Step: Review AI Results & Submit Below
+                </>
+              )}
+            </div>
+          )}
         </div>
       </div>
 
@@ -1467,19 +1508,37 @@ export const CitizenObservationForm: React.FC<CitizenObservationFormProps> = ({
                   Upstream photo
                 </div>
                 <div
+                  onClick={() => openMediaPreview(0)}
                   style={{
                     height: '140px',
                     borderRadius: '8px',
                     overflow: 'hidden',
                     background: '#1e293b',
-                    position: 'relative'
+                    position: 'relative',
+                    cursor: 'pointer',
                   }}
+                  title="Click to preview full-screen image"
                 >
                   <img
                     src={upstreamPhoto}
                     alt="Upstream"
                     style={{ width: '100%', height: '100%', objectFit: 'cover' }}
                   />
+                  <div
+                    style={{
+                      position: 'absolute',
+                      top: '6px',
+                      right: '6px',
+                      background: 'rgba(15, 23, 42, 0.8)',
+                      padding: '2px 6px',
+                      borderRadius: '4px',
+                      fontSize: '10px',
+                      color: '#38bdf8',
+                      fontWeight: 600,
+                    }}
+                  >
+                    🔍 Preview
+                  </div>
                   <div
                     style={{
                       position: 'absolute',
@@ -1525,19 +1584,37 @@ export const CitizenObservationForm: React.FC<CitizenObservationFormProps> = ({
                   Downstream photo
                 </div>
                 <div
+                  onClick={() => openMediaPreview(1)}
                   style={{
                     height: '140px',
                     borderRadius: '8px',
                     overflow: 'hidden',
                     background: '#1e293b',
-                    position: 'relative'
+                    position: 'relative',
+                    cursor: 'pointer',
                   }}
+                  title="Click to preview full-screen image"
                 >
                   <img
                     src={downstreamPhoto}
                     alt="Downstream"
                     style={{ width: '100%', height: '100%', objectFit: 'cover' }}
                   />
+                  <div
+                    style={{
+                      position: 'absolute',
+                      top: '6px',
+                      right: '6px',
+                      background: 'rgba(15, 23, 42, 0.8)',
+                      padding: '2px 6px',
+                      borderRadius: '4px',
+                      fontSize: '10px',
+                      color: '#38bdf8',
+                      fontWeight: 600,
+                    }}
+                  >
+                    🔍 Preview
+                  </div>
                   <div
                     style={{
                       position: 'absolute',
@@ -1583,19 +1660,37 @@ export const CitizenObservationForm: React.FC<CitizenObservationFormProps> = ({
                   Surrounding context photo
                 </div>
                 <div
+                  onClick={() => openMediaPreview(2)}
                   style={{
                     height: '140px',
                     borderRadius: '8px',
                     overflow: 'hidden',
                     background: '#1e293b',
-                    position: 'relative'
+                    position: 'relative',
+                    cursor: 'pointer',
                   }}
+                  title="Click to preview full-screen image"
                 >
                   <img
                     src={surroundingPhoto}
                     alt="Surrounding context"
                     style={{ width: '100%', height: '100%', objectFit: 'cover' }}
                   />
+                  <div
+                    style={{
+                      position: 'absolute',
+                      top: '6px',
+                      right: '6px',
+                      background: 'rgba(15, 23, 42, 0.8)',
+                      padding: '2px 6px',
+                      borderRadius: '4px',
+                      fontSize: '10px',
+                      color: '#38bdf8',
+                      fontWeight: 600,
+                    }}
+                  >
+                    🔍 Preview
+                  </div>
                   <div
                     style={{
                       position: 'absolute',
@@ -1641,19 +1736,37 @@ export const CitizenObservationForm: React.FC<CitizenObservationFormProps> = ({
                   Biodiversity photo
                 </div>
                 <div
+                  onClick={() => openMediaPreview(3)}
                   style={{
                     height: '140px',
                     borderRadius: '8px',
                     overflow: 'hidden',
                     background: '#1e293b',
-                    position: 'relative'
+                    position: 'relative',
+                    cursor: 'pointer',
                   }}
+                  title="Click to preview full-screen image"
                 >
                   <img
                     src={biodiversityPhoto}
                     alt="Biodiversity"
                     style={{ width: '100%', height: '100%', objectFit: 'cover' }}
                   />
+                  <div
+                    style={{
+                      position: 'absolute',
+                      top: '6px',
+                      right: '6px',
+                      background: 'rgba(15, 23, 42, 0.8)',
+                      padding: '2px 6px',
+                      borderRadius: '4px',
+                      fontSize: '10px',
+                      color: '#38bdf8',
+                      fontWeight: 600,
+                    }}
+                  >
+                    🔍 Preview
+                  </div>
                   <div
                     style={{
                       position: 'absolute',
@@ -1707,6 +1820,9 @@ export const CitizenObservationForm: React.FC<CitizenObservationFormProps> = ({
                 </div>
 
                 <div
+                  onClick={() => {
+                    if (streamVideo) openMediaPreview(4);
+                  }}
                   style={{
                     height: '140px',
                     borderRadius: '8px',
@@ -1718,15 +1834,34 @@ export const CitizenObservationForm: React.FC<CitizenObservationFormProps> = ({
                     justifyContent: 'center',
                     color: '#38bdf8',
                     overflow: 'hidden',
-                    position: 'relative'
+                    position: 'relative',
+                    cursor: streamVideo ? 'pointer' : 'default',
                   }}
+                  title={streamVideo ? 'Click to preview video full-screen' : ''}
                 >
                   {streamVideo ? (
-                    <video
-                      src={streamVideo}
-                      controls
-                      style={{ width: '100%', height: '100%', objectFit: 'cover' }}
-                    />
+                    <>
+                      <video
+                        src={streamVideo}
+                        style={{ width: '100%', height: '100%', objectFit: 'cover' }}
+                      />
+                      <div
+                        style={{
+                          position: 'absolute',
+                          inset: 0,
+                          background: 'rgba(0,0,0,0.3)',
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          gap: '6px',
+                          color: '#ffffff',
+                          fontWeight: 700,
+                          fontSize: '12px',
+                        }}
+                      >
+                        ▶ Click to Play Fullscreen
+                      </div>
+                    </>
                   ) : (
                     <>
                       <Video size={36} />
@@ -2191,30 +2326,30 @@ export const CitizenObservationForm: React.FC<CitizenObservationFormProps> = ({
                           gap: '12px'
                         }}
                       >
-                        <div style={{ background: '#091122', padding: '6px', borderRadius: '8px', border: '1px solid #1e293b' }}>
+                        <div onClick={() => openMediaPreview(0)} style={{ background: '#091122', padding: '6px', borderRadius: '8px', border: '1px solid #1e293b', cursor: 'pointer' }} title="Click to enlarge">
                           <div style={{ fontSize: '11px', color: '#cbd5e1', marginBottom: '4px', fontWeight: 600 }}>⬆ Upstream</div>
                           <img src={upstreamPhoto} alt="Upstream" style={{ width: '100%', height: '85px', objectFit: 'cover', borderRadius: '6px' }} />
                         </div>
 
-                        <div style={{ background: '#091122', padding: '6px', borderRadius: '8px', border: '1px solid #1e293b' }}>
+                        <div onClick={() => openMediaPreview(1)} style={{ background: '#091122', padding: '6px', borderRadius: '8px', border: '1px solid #1e293b', cursor: 'pointer' }} title="Click to enlarge">
                           <div style={{ fontSize: '11px', color: '#cbd5e1', marginBottom: '4px', fontWeight: 600 }}>⬇ Downstream</div>
                           <img src={downstreamPhoto} alt="Downstream" style={{ width: '100%', height: '85px', objectFit: 'cover', borderRadius: '6px' }} />
                         </div>
 
-                        <div style={{ background: '#091122', padding: '6px', borderRadius: '8px', border: '1px solid #1e293b' }}>
+                        <div onClick={() => openMediaPreview(2)} style={{ background: '#091122', padding: '6px', borderRadius: '8px', border: '1px solid #1e293b', cursor: 'pointer' }} title="Click to enlarge">
                           <div style={{ fontSize: '11px', color: '#cbd5e1', marginBottom: '4px', fontWeight: 600 }}>🏡 Surroundings</div>
                           <img src={surroundingPhoto} alt="Surroundings" style={{ width: '100%', height: '85px', objectFit: 'cover', borderRadius: '6px' }} />
                         </div>
 
-                        <div style={{ background: '#091122', padding: '6px', borderRadius: '8px', border: '1px solid #1e293b' }}>
+                        <div onClick={() => openMediaPreview(3)} style={{ background: '#091122', padding: '6px', borderRadius: '8px', border: '1px solid #1e293b', cursor: 'pointer' }} title="Click to enlarge">
                           <div style={{ fontSize: '11px', color: '#cbd5e1', marginBottom: '4px', fontWeight: 600 }}>🌿 Biodiversity</div>
                           <img src={biodiversityPhoto} alt="Biodiversity" style={{ width: '100%', height: '85px', objectFit: 'cover', borderRadius: '6px' }} />
                         </div>
 
                         {streamVideo && (
-                          <div style={{ background: '#091122', padding: '6px', borderRadius: '8px', border: '1px solid #10b981' }}>
+                          <div onClick={() => openMediaPreview(4)} style={{ background: '#091122', padding: '6px', borderRadius: '8px', border: '1px solid #10b981', cursor: 'pointer' }} title="Click to play fullscreen">
                             <div style={{ fontSize: '11px', color: '#34d399', marginBottom: '4px', fontWeight: 700 }}>🎥 Stream Video</div>
-                            <video src={streamVideo} controls style={{ width: '100%', height: '85px', objectFit: 'cover', borderRadius: '6px' }} />
+                            <video src={streamVideo} style={{ width: '100%', height: '85px', objectFit: 'cover', borderRadius: '6px' }} />
                           </div>
                         )}
                       </div>
@@ -2241,25 +2376,43 @@ export const CitizenObservationForm: React.FC<CitizenObservationFormProps> = ({
                     </div>
                   </div>
                 ) : (
-                  <div style={{ textAlign: 'center' }}>
+                  <div style={{ textAlign: 'center', marginTop: '28px' }}>
                     <button
+                      id="btn-finalize-submit-obs"
+                      disabled={isSubmitting || submissionSuccess || isAiAnalyzing}
                       onClick={handleFinalSubmit}
                       style={{
                         padding: '16px 36px',
                         borderRadius: '12px',
-                        background: 'linear-gradient(90deg, #0284c7, #10b981)',
+                        background: isSubmitting || isAiAnalyzing
+                          ? '#1e293b'
+                          : 'linear-gradient(90deg, #0284c7, #10b981)',
                         color: '#ffffff',
                         fontWeight: 800,
                         fontSize: '16px',
-                        border: 'none',
-                        cursor: 'pointer',
+                        border: isSubmitting || isAiAnalyzing ? '1px solid #334155' : 'none',
+                        cursor: isSubmitting || isAiAnalyzing ? 'not-allowed' : 'pointer',
                         display: 'inline-flex',
                         alignItems: 'center',
                         gap: '10px',
-                        boxShadow: '0 10px 25px rgba(2, 132, 199, 0.4)'
+                        boxShadow: isSubmitting || isAiAnalyzing ? 'none' : '0 10px 25px rgba(2, 132, 199, 0.4)',
+                        opacity: isSubmitting || isAiAnalyzing ? 0.7 : 1,
+                        transition: 'all 0.2s ease',
                       }}
                     >
-                      <Award size={20} /> Finalize Observation & Submit to FHIR Registry
+                      {isSubmitting ? (
+                        <>
+                          <RotateCcw size={20} className="pulse-indicator" /> Submitting & Syncing to Cloud...
+                        </>
+                      ) : isAiAnalyzing ? (
+                        <>
+                          <RotateCcw size={20} className="pulse-indicator" /> Running Multi-Modal AI Assessment...
+                        </>
+                      ) : (
+                        <>
+                          <Award size={20} /> Finalize Observation & Submit to FHIR Registry
+                        </>
+                      )}
                     </button>
                   </div>
                 )}
@@ -2268,6 +2421,14 @@ export const CitizenObservationForm: React.FC<CitizenObservationFormProps> = ({
           </div>
         )}
       </div>
+
+      {/* Media Preview Lightbox Modal */}
+      <MediaPreviewModal
+        isOpen={previewModal.isOpen}
+        onClose={() => setPreviewModal((p) => ({ ...p, isOpen: false }))}
+        mediaList={previewModal.items}
+        initialIndex={previewModal.initialIndex}
+      />
     </div>
   );
 };
