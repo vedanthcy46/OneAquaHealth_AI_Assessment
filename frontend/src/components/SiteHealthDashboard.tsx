@@ -111,6 +111,17 @@ export const SiteHealthDashboard: React.FC = () => {
   // Fetch real database calculations from backend when site changes
   const fetchSiteIntelligence = async (siteId: string) => {
     setIsLoading(true);
+
+    // If it's a mock site from the fallback model (id starts with 'site-'), don't fetch from backend to prevent UUID errors
+    if (siteId.startsWith('site-')) {
+      setIsLiveConnected(false);
+      setLiveTimeline([]);
+      setLiveTrends(null);
+      setLiveAlerts([]);
+      setIsLoading(false);
+      return;
+    }
+
     try {
       const [timelineRes, trendsRes, alertsRes] = await Promise.all([
         fetch(`${import.meta.env.VITE_API_URL || 'http://localhost:3001'}/sites/${siteId}/timeline?weeks=12`),
