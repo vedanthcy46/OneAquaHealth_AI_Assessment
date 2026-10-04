@@ -191,6 +191,9 @@ export const CitizenObservationForm: React.FC<CitizenObservationFormProps> = ({
         body: JSON.stringify({ imageBase64: base64, citizenAnswers: envObs })
       });
       const aiData = await aiRes.json();
+      if (!aiRes.ok || !aiData.success) {
+        throw new Error(aiData.error || 'Unknown AI error');
+      }
       const result = aiData.data || {};
 
       // 4. Map Real Python output back to frontend state
@@ -253,13 +256,11 @@ export const CitizenObservationForm: React.FC<CitizenObservationFormProps> = ({
             : 'Multi-modal optical analysis aligns with submitted observation answers.'
         }
       });
-    } catch (err) {
+    } catch (err: any) {
       console.error('Real AI Pipeline Failed:', err);
-      // Fallback to avoid breaking UI demo if backend is off
-      setImageQuality({ qualityScore: 50 });
-      setAiEvidence([]);
-      setValidationWarnings([]);
-      setConfidenceFactors({ score: 50, factors: {}, explanation: { what: 'Failed to connect to real backend' } });
+      alert('AI Analysis Failed: ' + (err.message || 'Server Error') + '\n\nPlease verify your backend is running and API keys are set.');
+      setIsAiAnalyzing(false);
+      return; // Stop the flow
     }
     setIsAiAnalyzing(false);
     setAiAnalysisComplete(true);

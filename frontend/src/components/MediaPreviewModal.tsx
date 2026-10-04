@@ -87,6 +87,8 @@ export const MediaPreviewModal: React.FC<MediaPreviewModalProps> = ({
           display: 'flex',
           alignItems: 'center',
           justifyContent: 'space-between',
+          flexWrap: 'wrap',
+          gap: '12px',
           background: 'linear-gradient(180deg, rgba(0,0,0,0.8) 0%, transparent 100%)',
           zIndex: 10,
         }}
@@ -119,7 +121,7 @@ export const MediaPreviewModal: React.FC<MediaPreviewModalProps> = ({
         </div>
 
         {/* Action Controls */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
           {/* Zoom In/Out for images */}
           {!isVideo && (
             <div style={{ display: 'flex', alignItems: 'center', gap: '4px', background: 'rgba(30, 41, 59, 0.8)', padding: '4px 8px', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.1)' }}>
@@ -268,8 +270,10 @@ export const MediaPreviewModal: React.FC<MediaPreviewModalProps> = ({
               autoPlay
               playsInline
               style={{
-                maxWidth: '85vw',
-                maxHeight: '75vh',
+                maxWidth: '100%',
+                maxHeight: '100%',
+                width: 'auto',
+                height: 'auto',
                 borderRadius: '12px',
                 boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.8), 0 0 40px rgba(56, 189, 248, 0.2)',
                 background: '#000000',
@@ -280,8 +284,10 @@ export const MediaPreviewModal: React.FC<MediaPreviewModalProps> = ({
               src={currentMedia.url}
               alt={currentMedia.title || 'Observation evidence'}
               style={{
-                maxWidth: '85vw',
-                maxHeight: '75vh',
+                maxWidth: '100%',
+                maxHeight: '100%',
+                width: 'auto',
+                height: 'auto',
                 objectFit: 'contain',
                 borderRadius: '12px',
                 boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.8), 0 0 40px rgba(56, 189, 248, 0.2)',
