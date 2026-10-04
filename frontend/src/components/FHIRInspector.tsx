@@ -1,12 +1,52 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { FileCode, Copy, Download, Check } from 'lucide-react';
 import { OfflineStorageService } from '../services/offlineStorage';
 import { toFHIRObservation } from '../services/fhirAdapter';
+import type { Observation } from '../types';
 
 export const FHIRInspector: React.FC = () => {
-  const observations = OfflineStorageService.getObservations();
-  const [selectedObsId, setSelectedObsId] = useState<string>(observations[0]?.id || '');
+  const [observations, setObservations] = useState<Observation[]>(OfflineStorageService.getObservations());
+  const [selectedObsId, setSelectedObsId] = useState<string>('');
   const [copied, setCopied] = useState<boolean>(false);
+
+  useEffect(() => {
+    const loadRealData = async () => {
+      try {
+        const res = await fetch(`${import.meta.env.VITE_API_URL || 'http://localhost:3001'}/observations?limit=50`);
+        const data = await res.json();
+        if (data.success && Array.isArray(data.data) && data.data.length > 0) {
+          const mapped = data.data.map((o: any) => ({
+            id: o.id,
+            siteId: o.site_id,
+            siteName: o.site_name || 'Unknown Site',
+            observerId: o.observer_id,
+            observerName: o.observer_name || 'Citizen',
+            status: o.status,
+            syncStatus: 'SYNCED' as const,
+            gps: { lat: o.lat || 0, lng: o.lng || 0, accuracy: o.gps_accuracy_m || 5 },
+            observedAt: o.observed_at,
+            envObservations: o.env_observations || {},
+            qualityScore: o.quality_score,
+            aiResult: o.ai_result || null,
+            validationWarnings: [],
+            media: o.media || [],
+            followupQuestions: [],
+            createdAt: o.created_at,
+            updatedAt: o.updated_at
+          }));
+          
+          setObservations(mapped);
+          if (mapped.length > 0) setSelectedObsId(mapped[0].id);
+        } else {
+          if (observations.length > 0) setSelectedObsId(observations[0].id);
+        }
+      } catch (err) {
+        console.warn('Could not fetch live observations for FHIR', err);
+        if (observations.length > 0) setSelectedObsId(observations[0].id);
+      }
+    };
+    loadRealData();
+  }, []);
 
   const currentObs = observations.find((o) => o.id === selectedObsId) || observations[0];
   const fhirPayload = currentObs ? toFHIRObservation(currentObs) : {};

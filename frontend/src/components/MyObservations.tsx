@@ -21,8 +21,8 @@ export const MyObservations: React.FC = () => {
     fetch(`${import.meta.env.VITE_API_URL || 'http://localhost:3001'}/observations?limit=100`)
       .then(r => r.json())
       .then(data => {
-        if (data.success && data.data?.items?.length > 0) {
-          const mapped = data.data.items.map((o: any) => ({
+        if (data.success && Array.isArray(data.data) && data.data.length > 0) {
+          const mapped = data.data.map((o: any) => ({
             id: o.id,
             siteId: o.site_id,
             siteName: o.site_name || 'Unknown Site',

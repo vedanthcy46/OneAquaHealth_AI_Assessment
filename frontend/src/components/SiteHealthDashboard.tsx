@@ -101,12 +101,41 @@ function buildFallbackTrendData(site: Site) {
 }
 
 export const SiteHealthDashboard: React.FC = () => {
+  const [sites, setSites] = useState<Site[]>(SAMPLE_SITES);
   const [selectedSite, setSelectedSite] = useState<Site>(SAMPLE_SITES[0]);
   const [liveTimeline, setLiveTimeline] = useState<SiteHealthTimelinePoint[]>([]);
   const [liveTrends, setLiveTrends] = useState<any>(null);
   const [liveAlerts, setLiveAlerts] = useState<any[]>([]);
   const [isLiveConnected, setIsLiveConnected] = useState<boolean>(false);
   const [isLoading, setIsLoading] = useState<boolean>(false);
+
+  // Fetch real sites on mount
+  useEffect(() => {
+    const fetchSites = async () => {
+      try {
+        const res = await fetch(`${import.meta.env.VITE_API_URL || 'http://localhost:3001'}/sites`);
+        const data = await res.json();
+        if (data.success && Array.isArray(data.data) && data.data.length > 0) {
+          const realSites = data.data.map((s: any) => ({
+            id: s.id,
+            name: s.name,
+            waterbody: s.waterbody,
+            city: s.city,
+            country: s.country || 'Unknown',
+            location: { lat: s.lat, lng: s.lng },
+            baseline: s.baseline || { clarityScoreAvg: 75, clarityScoreStd: 5, primaryIndicators: [] },
+            recentObservationsCount: s.observation_count || 0,
+            activeAnomaliesCount: 0
+          }));
+          setSites(realSites);
+          setSelectedSite(realSites[0]);
+        }
+      } catch (e) {
+        console.warn('Failed to load real sites, using mock sites');
+      }
+    };
+    fetchSites();
+  }, []);
 
   // Fetch real database calculations from backend when site changes
   const fetchSiteIntelligence = async (siteId: string) => {
@@ -283,7 +312,7 @@ export const SiteHealthDashboard: React.FC = () => {
         </div>
 
         <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
-          {SAMPLE_SITES.map((site) => (
+          {sites.map((site) => (
             <button
               key={site.id}
               id={`btn-select-site-${site.id}`}

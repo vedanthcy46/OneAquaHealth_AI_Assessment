@@ -30,10 +30,10 @@ export const ReviewerDashboard: React.FC = () => {
       try {
         const res = await fetch(`${import.meta.env.VITE_API_URL || 'http://localhost:3001'}/observations?limit=50`);
         const data = await res.json();
-        if (data.success && data.data?.items?.length > 0) {
-          const apiIds = new Set(data.data.items.map((o: any) => o.id));
+        if (data.success && Array.isArray(data.data) && data.data.length > 0) {
+          const apiIds = new Set(data.data.map((o: any) => o.id));
           const offlineOnly = offline.filter(o => !apiIds.has(o.id));
-          const mapped = data.data.items.map((o: any) => ({
+          const mapped = data.data.map((o: any) => ({
             id: o.id,
             siteId: o.site_id,
             siteName: o.site_name || 'Unknown Site',
@@ -668,16 +668,32 @@ export const ReviewerDashboard: React.FC = () => {
                     Historical Baseline at this Site (Last 5 Obs)
                   </h4>
                   <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '11px', textAlign: 'center' }}>
-                    {selectedObs.historyTimeline ? (
-                      selectedObs.historyTimeline.map((h, i) => (
-                        <div key={i} style={{ padding: '6px', background: 'rgba(0,0,0,0.2)', borderRadius: '6px' }}>
-                          <span style={{ color: 'var(--text-muted)', display: 'block' }}>{h.date}</span>
-                          <span style={{ fontWeight: 600, color: i === 4 ? '#f87171' : '#34d399' }}>{h.clarity}</span>
-                        </div>
-                      ))
-                    ) : (
-                      <span style={{ color: 'var(--text-muted)' }}>Historical baseline normal.</span>
-                    )}
+                    {(() => {
+                      const previousObs = observations
+                        .filter(o => o.siteId === selectedObs.siteId && new Date(o.observedAt).getTime() < new Date(selectedObs.observedAt).getTime())
+                        .sort((a, b) => new Date(b.observedAt).getTime() - new Date(a.observedAt).getTime())
+                        .slice(0, 5)
+                        .reverse();
+
+                      if (previousObs.length === 0) {
+                        return <span style={{ color: 'var(--text-muted)' }}>Historical baseline normal (no prior flagged deviations).</span>;
+                      }
+
+                      return previousObs.map((obs, i) => {
+                        const obsClarity = obs.envObservations?.waterClarity || 'unknown';
+                        const isMatch = obsClarity === selectedObs.envObservations?.waterClarity;
+                        return (
+                          <div key={i} style={{ padding: '6px', background: 'rgba(0,0,0,0.2)', borderRadius: '6px', minWidth: '60px' }}>
+                            <span style={{ color: 'var(--text-muted)', display: 'block' }}>
+                              {new Date(obs.observedAt).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}
+                            </span>
+                            <span style={{ fontWeight: 600, color: isMatch ? '#34d399' : '#fbbf24', textTransform: 'capitalize' }}>
+                              {obsClarity.replace('_', ' ')}
+                            </span>
+                          </div>
+                        );
+                      });
+                    })()}
                   </div>
                 </div>
 
