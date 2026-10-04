@@ -312,7 +312,7 @@ export const CitizenObservationForm: React.FC<CitizenObservationFormProps> = ({
       },
       observedAt: new Date().toISOString(),
       envObservations: envObs,
-      qualityScore: confidenceFactors?.score || 91,
+      qualityScore: imageQuality?.quality_score ?? imageQuality?.qualityScore ?? 91,
       version: 1,
       media: [
         {
