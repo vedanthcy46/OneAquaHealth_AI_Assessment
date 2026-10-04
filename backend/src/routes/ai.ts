@@ -5,14 +5,21 @@ import * as fs from 'fs';
 import { v4 as uuidv4 } from 'uuid';
 
 function getPythonExecutable(): string {
+  const isWindows = process.platform === 'win32';
   const venvPythonWin = path.join(process.cwd(), 'ai/.venv/Scripts/python.exe');
   const venvPythonUnix = path.join(process.cwd(), 'ai/.venv/bin/python');
   const relVenvWin = path.join(__dirname, '../../../ai/.venv/Scripts/python.exe');
+  const relVenvUnix = path.join(__dirname, '../../../ai/.venv/bin/python');
 
-  if (fs.existsSync(venvPythonWin)) return venvPythonWin;
-  if (fs.existsSync(relVenvWin)) return relVenvWin;
-  if (fs.existsSync(venvPythonUnix)) return venvPythonUnix;
-  return process.env.PYTHON_PATH || 'python';
+  if (isWindows) {
+    if (fs.existsSync(venvPythonWin)) return venvPythonWin;
+    if (fs.existsSync(relVenvWin)) return relVenvWin;
+  } else {
+    if (fs.existsSync(venvPythonUnix)) return venvPythonUnix;
+    if (fs.existsSync(relVenvUnix)) return relVenvUnix;
+  }
+
+  return process.env.PYTHON_PATH || (isWindows ? 'python' : 'python3');
 }
 
 function spawnPythonPipeline(payload: any): Promise<any> {

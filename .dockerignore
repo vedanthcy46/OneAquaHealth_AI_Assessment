@@ -1,0 +1,9 @@
+node_modules
+*/node_modules
+.venv
+*/.venv
+.git
+.env
+dist
+build
+temp_*.jpg
