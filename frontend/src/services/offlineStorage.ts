@@ -113,7 +113,7 @@ export class OfflineStorageService {
 
       if (!createData.success || !serverObsId.match(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i)) {
         console.warn('Observation creation failed or returned invalid UUID. Skipping media sync.', createData);
-        continue;
+        return;
       }
 
       // 4. Upload and persist all photos and video to backend storage
